@@ -15,7 +15,7 @@ export const initials = (value = "User") =>
     .join("")
     .toUpperCase();
 export const csvCell = (value: unknown) =>
-  `"${String(value ?? "").replaceAll('"', '""')}"`;
+  `"${String(value ?? "").split('"').join('""')}"`;
 export function downloadCsv(name: string, rows: unknown[][]) {
   const csv = rows.map((row) => row.map(csvCell).join(",")).join("\r\n");
   const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });

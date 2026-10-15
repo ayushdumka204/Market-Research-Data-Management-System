@@ -18,6 +18,7 @@ export interface Project {
   sample_completed: number;
   leader_id: string | null;
   leader_name?: string | null;
+  team?: Array<User | string>;
   task_count?: number;
   approved_tasks?: number;
 }

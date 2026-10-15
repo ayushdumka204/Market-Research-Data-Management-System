@@ -97,7 +97,7 @@ export default function Tasks({ user }: { user: any }) {
       setBusy(false);
     }
   }
-  async function decide(id: number, decision: "approve" | "changes") {
+  async function decide(id: string, decision: "approve" | "changes") {
     setBusy(true);
     try {
       await api(`/tasks/${id}/review`, {
@@ -141,7 +141,7 @@ export default function Tasks({ user }: { user: any }) {
             onClick={() => setFilter(filter === s ? "all" : s)}
             key={s}
           >
-            <span>{s.replaceAll("_", " ")}</span>
+            <span>{s.split("_").join(" ")}</span>
             <b>{tasks.filter((t) => t.status === s).length}</b>
           </button>
         ))}
@@ -167,7 +167,7 @@ export default function Tasks({ user }: { user: any }) {
               "changes_requested",
             ].map((s) => (
               <option value={s} key={s}>
-                {s.replaceAll("_", " ")}
+                {s.split("_").join(" ")}
               </option>
             ))}
           </select>
