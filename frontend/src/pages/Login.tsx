@@ -1,131 +1,93 @@
 import { useState } from "react";
-import {
-  Command,
-  LockKeyhole,
-  Mail,
-  ArrowRight,
-  ShieldCheck,
-} from "lucide-react";
-export default function Login({
-  onLogin,
-}: {
-  onLogin: (email: string, password: string) => Promise<void>;
-}) {
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+import { ArrowRight, ShieldCheck } from "lucide-react";
+import { api, body, saveSession } from "../services/api";
+export default function Login({ onLogin }: { onLogin: (user: any) => void }) {
+  const [email, setEmail] = useState(""),
+    [password, setPassword] = useState(""),
+    [error, setError] = useState(""),
+    [busy, setBusy] = useState(false);
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError("");
     try {
-      await onLogin(email, password);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to sign in");
+      const r: any = await api("/auth/login", {
+        method: "POST",
+        body: body({ email, password }),
+      });
+      saveSession(r.token, r.user);
+      onLogin(r.user);
+    } catch (e: any) {
+      setError(e.message);
     } finally {
       setBusy(false);
     }
   }
   return (
-    <div className="login-screen">
-      <div className="login-art">
-        <div className="login-brand">
-          <div className="brand-mark">
-            <Command size={23} />
+    <div className="login-shell">
+      <section className="login-panel">
+        <div className="brand">
+          <div className="brand-mark">N</div>
+          <div>
+            <b>NexGen</b>
+            <small>RESEARCH OPERATIONS</small>
           </div>
-          <span>
-            NexGen<span className="brand-period">.</span>
-          </span>
         </div>
-        <div className="art-copy">
-          <div className="eyebrow light">INSIGHT, ORGANIZED.</div>
+        <div className="login-copy">
+          <span className="pill">
+            <ShieldCheck size={14} /> Secure team workspace
+          </span>
           <h1>
-            Better research
+            Research work,
             <br />
-            starts with a<br />
-            <em>clear picture.</em>
+            <em>beautifully organised.</em>
           </h1>
           <p>
-            One considered workspace for your projects, field data and the
-            insights that move work forward.
+            One workspace for projects, survey data, collected records and
+            research deliverables.
           </p>
-          <div className="art-stats">
-            <div>
-              <strong>01</strong>
-              <span>Connected workspace</span>
-            </div>
-            <div>
-              <strong>02</strong>
-              <span>Structured data</span>
-            </div>
-            <div>
-              <strong>03</strong>
-              <span>Actionable reporting</span>
-            </div>
-          </div>
         </div>
-        <div className="art-footer">
-          <span>INTERNAL RESEARCH PLATFORM</span>
-          <span>INDIA · INTERNATIONAL</span>
-        </div>
-      </div>
-      <div className="login-panel">
-        <form className="login-form" onSubmit={submit}>
-          <div className="login-mobile-brand">
-            <div className="brand-mark">
-              <Command size={20} />
-            </div>
-            <strong>
-              NexGen<span className="brand-period">.</span>
-            </strong>
-          </div>
-          <div className="eyebrow">WELCOME BACK</div>
+        <small className="login-foot">
+          NEXGEN MARKET RESEARCH · INTERNAL PLATFORM
+        </small>
+      </section>
+      <section className="login-form-wrap">
+        <form className="login-card" onSubmit={submit}>
+          <p className="eyebrow">WELCOME BACK</p>
           <h2>Sign in to your workspace</h2>
-          <p className="login-subtitle">
-            Use your team credentials to continue.
+          <p className="subtitle">
+            Use your authorised NexGen account to continue.
           </p>
-          {error && <div className="error-box">{error}</div>}
-          <label className="field-label">Work email</label>
-          <div className="input-icon">
-            <Mail size={17} />
+          <label>
+            Email address
             <input
               type="email"
-              required
               autoComplete="username"
-              placeholder="you@company.com"
+              required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
             />
-          </div>
-          <label className="field-label">Password</label>
-          <div className="input-icon">
-            <LockKeyhole size={17} />
+          </label>
+          <label>
+            Password
             <input
               type="password"
-              required
               autoComplete="current-password"
-              placeholder="Enter your password"
+              required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
             />
-          </div>
-          <button className="btn btn-primary login-submit" disabled={busy}>
+          </label>
+          {error && <div className="error">{error}</div>}
+          <button className="button primary full" disabled={busy}>
             {busy ? "Signing in…" : "Sign in"}
             <ArrowRight size={17} />
           </button>
-          <div className="login-assurance">
-            <ShieldCheck size={16} />
-            <span>Secure access · Role-based permissions</span>
-          </div>
-          <p className="login-help">
-            Your administrator can create or reset your account.
+          <p className="login-note">
+            Access is limited to authorised team accounts.
           </p>
         </form>
-        <div className="login-panel-footer">
-          © {new Date().getFullYear()} NexGen Market Research Services
-        </div>
-      </div>
+      </section>
     </div>
   );
 }

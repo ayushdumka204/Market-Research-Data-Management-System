@@ -1,29 +1,29 @@
 {
-  "name": "nexgen-research-frontend",
-  "private": true,
+  "name": "nexgen-research-management-frontend",
   "version": "1.0.0",
+  "private": true,
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
-    "preview": "vite preview --host 0.0.0.0"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@vitejs/plugin-react": "latest",
     "lucide-react": "^0.468.0",
+    "papaparse": "^5.4.1",
     "react": "latest",
     "react-dom": "latest",
-    "react-router-dom": "latest",
+    "typescript": "latest",
     "vite": "latest",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {
-    "@types/react": "latest",
-    "@types/react-dom": "latest",
-    "autoprefixer": "latest",
-    "postcss": "latest",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
     "prettier": "^3.9.10",
-    "tailwindcss": "^3.4.17",
-    "typescript": "latest"
+    "tailwindcss": "^3.4.17"
   }
 }

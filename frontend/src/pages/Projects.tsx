@@ -1,353 +1,273 @@
 import { useEffect, useState } from "react";
-import { useSearchParams } from "react-router-dom";
-import {
-  Plus,
-  Search,
-  SlidersHorizontal,
-  FolderKanban,
-  CalendarDays,
-  Pencil,
-  Trash2,
-  X,
-} from "lucide-react";
-import PageHeader from "../components/PageHeader";
-import Modal from "../components/Modal";
-import StatusBadge from "../components/StatusBadge";
-import { api } from "../services/api";
+import { Plus, Search, CalendarDays, Users } from "lucide-react";
+import { api, body } from "../services/api";
 import type { Project, User } from "../types";
-type Draft = {
-  name: string;
-  client: string;
-  industry: string;
-  description: string;
-  start_date: string;
-  end_date: string;
-  status: string;
-};
-const blank: Draft = {
-  name: "",
-  client: "",
-  industry: "",
-  description: "",
-  start_date: "",
-  end_date: "",
-  status: "planning",
-};
-export default function Projects({ user }: { user: User }) {
-  const [items, setItems] = useState<Project[]>([]);
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("all");
-  const [modal, setModal] = useState(false);
-  const [editing, setEditing] = useState<Project | null>(null);
-  const [draft, setDraft] = useState<Draft>(blank);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
-  const [params, setParams] = useSearchParams();
-  const admin = user.role === "admin";
+import PageTitle from "../components/layout/PageTitle";
+import StatusBadge from "../components/ui/StatusBadge";
+import EmptyState from "../components/ui/EmptyState";
+import Modal from "../components/ui/Modal";
+import Field from "../components/forms/Field";
+import DataTable from "../components/tables/DataTable";
+import { dateLabel } from "../utils/format";
+export default function Projects({ user }: { user: any }) {
+  const [items, setItems] = useState<Project[]>([]),
+    [leaders, setLeaders] = useState<User[]>([]),
+    [query, setQuery] = useState(""),
+    [status, setStatus] = useState("all"),
+    [error, setError] = useState(""),
+    [show, setShow] = useState(false),
+    [busy, setBusy] = useState(false),
+    [form, setForm] = useState<any>({
+      name: "",
+      client: "",
+      description: "",
+      sample_target: "",
+      start_date: "",
+      due_date: "",
+      leader_id: "",
+      eligible_team: [],
+    });
   async function load() {
     try {
-      setItems(await api<Project[]>("/projects"));
-    } catch (e) {
-      setError((e as Error).message);
+      const p = await api<Project[]>("/projects");
+      setItems(p);
+      if (user.role === "admin") {
+        const [ls, ms] = await Promise.all([
+          api<User[]>("/users?role=leader"),
+          api<User[]>("/users?role=team"),
+        ]);
+        setLeaders([...ls, ...ms]);
+      }
+      setError("");
+    } catch (e: any) {
+      setError(e.message);
     }
   }
   useEffect(() => {
     load();
   }, []);
-  useEffect(() => {
-    if (params.get("new") === "1") {
-      openNew();
-      setParams({});
-    }
-  }, [params]);
-  function openNew() {
-    setEditing(null);
-    setDraft(blank);
-    setError("");
-    setModal(true);
-  }
-  function openEdit(p: Project) {
-    setEditing(p);
-    setDraft({
-      name: p.name,
-      client: p.client || "",
-      industry: p.industry || "",
-      description: p.description || "",
-      start_date: p.start_date || "",
-      end_date: p.end_date || "",
-      status: p.status,
-    });
-    setError("");
-    setModal(true);
-  }
-  async function save(e: React.FormEvent) {
+  async function create(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
-    setError("");
     try {
-      const body = {
-        ...draft,
-        start_date: draft.start_date || null,
-        end_date: draft.end_date || null,
-      };
-      if (editing)
-        await api(`/projects/${editing.id}`, {
-          method: "PUT",
-          body: JSON.stringify(body),
-        });
-      else
-        await api("/projects", { method: "POST", body: JSON.stringify(body) });
-      setModal(false);
+      await api("/projects", {
+        method: "POST",
+        body: body({
+          ...form,
+          sample_target: Number(form.sample_target || 0),
+          leader_id: form.leader_id || null,
+          eligible_team: form.eligible_team,
+        }),
+      });
+      setShow(false);
+      setForm({
+        name: "",
+        client: "",
+        description: "",
+        sample_target: "",
+        start_date: "",
+        due_date: "",
+        leader_id: "",
+        eligible_team: [],
+      });
       await load();
-    } catch (e) {
-      setError((e as Error).message);
+    } catch (e: any) {
+      setError(e.message);
     } finally {
       setBusy(false);
     }
   }
-  async function remove(p: Project) {
-    if (!confirm(`Delete “${p.name}”? This cannot be undone.`)) return;
-    try {
-      await api(`/projects/${p.id}`, { method: "DELETE" });
-      await load();
-    } catch (e) {
-      setError((e as Error).message);
-    }
-  }
-  const shown = items.filter(
+  const filtered = items.filter(
     (p) =>
-      (p.name + " " + p.client + " " + p.industry)
+      (p.name + " " + (p.client || ""))
         .toLowerCase()
-        .includes(search.toLowerCase()) &&
+        .includes(query.toLowerCase()) &&
       (status === "all" || p.status === status),
   );
   return (
     <>
-      <PageHeader
-        eyebrow="PROJECT DIRECTORY"
-        title="Research projects"
-        description="Keep every brief, timeline and research outcome connected to a single project."
+      <PageTitle
+        title="Projects"
+        description="Manage research engagements, ownership, sample targets and timelines."
         actions={
-          <button className="btn btn-primary" onClick={openNew}>
-            <Plus size={17} /> New project
-          </button>
+          user.role !== "team" && (
+            <button className="button primary" onClick={() => setShow(true)}>
+              <Plus size={16} /> New project
+            </button>
+          )
         }
       />
-      {error && !modal && <div className="error-box">{error}</div>}
-      <div className="toolbar">
-        <label className="search-field">
-          <Search size={17} />
-          <input
-            placeholder="Search projects, clients or industries…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </label>
-        <div className="filter-control">
-          <SlidersHorizontal size={16} />
+      {error && <div className="error-banner">{error}</div>}
+      <section className="surface">
+        <div className="table-toolbar">
+          <div className="search-box">
+            <Search size={16} />
+            <input
+              placeholder="Search projects or clients…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
           <select value={status} onChange={(e) => setStatus(e.target.value)}>
             <option value="all">All statuses</option>
             <option value="planning">Planning</option>
-            <option value="active">Active</option>
+            <option value="ongoing">Ongoing</option>
             <option value="on_hold">On hold</option>
             <option value="completed">Completed</option>
           </select>
+          <span className="result-count">{filtered.length} projects</span>
         </div>
-        <span className="result-count">{shown.length} projects</span>
-      </div>
-      <section className="panel table-panel">
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Project</th>
-                <th>Client / industry</th>
-                <th>Timeline</th>
-                <th>Responses</th>
-                <th>Status</th>
-                <th className="right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((p) => (
-                <tr key={p.id}>
-                  <td>
-                    <div className="table-project">
-                      <div className="table-project-icon">
-                        <FolderKanban size={17} />
-                      </div>
-                      <div>
-                        <strong>{p.name}</strong>
-                        <span>PRJ-{String(p.id).padStart(4, "0")}</span>
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <strong className="cell-primary">{p.client || "—"}</strong>
-                    <span className="cell-secondary">
-                      {p.industry || "Not specified"}
-                    </span>
-                  </td>
-                  <td>
-                    <div className="timeline-cell">
-                      <CalendarDays size={15} />
-                      <span>
-                        {p.start_date || "Not scheduled"}
-                        {p.end_date ? ` – ${p.end_date}` : ""}
-                      </span>
-                    </div>
-                  </td>
-                  <td>
-                    <span className="response-count">
-                      {p.response_count ?? 0}
-                    </span>
-                  </td>
-                  <td>
-                    <StatusBadge status={p.status} />
-                  </td>
-                  <td>
-                    <div className="table-actions">
-                      <button
-                        className="icon-btn"
-                        title="Edit project"
-                        onClick={() => openEdit(p)}
-                      >
-                        <Pencil size={15} />
-                      </button>
-                      {admin && (
-                        <button
-                          className="icon-btn danger-hover"
-                          title="Delete project"
-                          onClick={() => remove(p)}
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {shown.length === 0 && (
-            <div className="empty-table">
-              <div className="empty-icon">
-                <FolderKanban size={22} />
-              </div>
-              <strong>No projects match this view</strong>
-              <p>Try another search or create a new project.</p>
-              <button className="btn btn-secondary" onClick={openNew}>
-                <Plus size={16} /> New project
-              </button>
-            </div>
-          )}
-        </div>
-        <div className="table-foot">
-          <span>
-            Showing {shown.length} of {items.length} projects
-          </span>
-          <span>
-            {admin ? "Admin access" : "Team access"} · Project workspace
-          </span>
-        </div>
-      </section>
-      {modal && (
-        <Modal
-          title={editing ? "Edit project" : "Create a research project"}
-          onClose={() => setModal(false)}
+        <DataTable
+          headers={[
+            "Project / Client",
+            "Project leader",
+            "Sample target",
+            "Due date",
+            "Progress",
+            "Status",
+          ]}
+          empty={!filtered.length}
+          emptyTitle="No matching projects"
+          emptyDescription="Try another search or create a project."
         >
-          <form onSubmit={save} className="form-stack">
-            <div className="form-grid">
-              <div className="form-field full">
-                <label>Project name *</label>
-                <input
-                  required
-                  maxLength={180}
-                  value={draft.name}
-                  onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                  placeholder="e.g. Urban mobility perception study"
-                />
-              </div>
-              <div className="form-field">
-                <label>Client / organization</label>
-                <input
-                  value={draft.client}
-                  onChange={(e) =>
-                    setDraft({ ...draft, client: e.target.value })
-                  }
-                  placeholder="Client name"
-                />
-              </div>
-              <div className="form-field">
-                <label>Industry</label>
-                <input
-                  value={draft.industry}
-                  onChange={(e) =>
-                    setDraft({ ...draft, industry: e.target.value })
-                  }
-                  placeholder="e.g. Consumer insights"
-                />
-              </div>
-              <div className="form-field">
-                <label>Start date</label>
-                <input
-                  type="date"
-                  value={draft.start_date}
-                  onChange={(e) =>
-                    setDraft({ ...draft, start_date: e.target.value })
-                  }
-                />
-              </div>
-              <div className="form-field">
-                <label>Target end date</label>
-                <input
-                  type="date"
-                  value={draft.end_date}
-                  onChange={(e) =>
-                    setDraft({ ...draft, end_date: e.target.value })
-                  }
-                />
-              </div>
-              <div className="form-field">
-                <label>Status</label>
+          {filtered.map((p) => {
+            const progress = p.sample_target
+              ? Math.min(
+                  100,
+                  Math.round((p.sample_completed / p.sample_target) * 100),
+                )
+              : 0;
+            return (
+              <tr key={p.id}>
+                <td>
+                  <b>{p.name}</b>
+                  <small className="cell-sub">
+                    {p.client || "Internal research"}
+                  </small>
+                </td>
+                <td>{p.leader_name || "Unassigned"}</td>
+                <td>{p.sample_target.toLocaleString("en-IN")}</td>
+                <td>
+                  <span className="date-cell">
+                    <CalendarDays size={14} />
+                    {dateLabel(p.due_date)}
+                  </span>
+                </td>
+                <td>
+                  <div className="progress-track">
+                    <i style={{ width: progress + "%" }} />
+                  </div>
+                  <small>{progress}%</small>
+                </td>
+                <td>
+                  <StatusBadge status={p.status} />
+                </td>
+              </tr>
+            );
+          })}
+        </DataTable>
+      </section>
+      {show && (
+        <Modal
+          title="Create project"
+          eyebrow="PROJECT SETUP"
+          onClose={() => setShow(false)}
+          onSubmit={create}
+          submitLabel="Create project"
+          busy={busy}
+        >
+          <div className="form-grid">
+            <Field label="Project name *">
+              <input
+                required
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+              />
+            </Field>
+            <Field label="Client / organisation">
+              <input
+                value={form.client}
+                onChange={(e) => setForm({ ...form, client: e.target.value })}
+              />
+            </Field>
+            <Field label="Start date">
+              <input
+                type="date"
+                value={form.start_date}
+                onChange={(e) =>
+                  setForm({ ...form, start_date: e.target.value })
+                }
+              />
+            </Field>
+            <Field label="Due date">
+              <input
+                type="date"
+                value={form.due_date}
+                onChange={(e) => setForm({ ...form, due_date: e.target.value })}
+              />
+            </Field>
+            <Field label="Sample target">
+              <input
+                type="number"
+                min="0"
+                value={form.sample_target}
+                onChange={(e) =>
+                  setForm({ ...form, sample_target: e.target.value })
+                }
+              />
+            </Field>
+            {user.role === "admin" && (
+              <Field label="Assign project leader">
                 <select
-                  value={draft.status}
+                  value={form.leader_id}
                   onChange={(e) =>
-                    setDraft({ ...draft, status: e.target.value })
+                    setForm({ ...form, leader_id: e.target.value })
                   }
                 >
-                  <option value="planning">Planning</option>
-                  <option value="active">Active</option>
-                  <option value="on_hold">On hold</option>
-                  <option value="completed">Completed</option>
+                  <option value="">Unassigned</option>
+                  {leaders
+                    .filter((l) => l.role === "leader")
+                    .map((l) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name} — {l.email}
+                      </option>
+                    ))}
                 </select>
-              </div>
-              <div className="form-field full">
-                <label>Research brief / notes</label>
-                <textarea
-                  rows={3}
-                  value={draft.description}
-                  onChange={(e) =>
-                    setDraft({ ...draft, description: e.target.value })
-                  }
-                  placeholder="Objective, audience, geography or key questions…"
-                />
-              </div>
-            </div>
-            {error && <div className="error-box">{error}</div>}
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={() => setModal(false)}
+              </Field>
+            )}
+            <Field label="Eligible team members (optional)">
+              <select
+                multiple
+                size={4}
+                value={form.eligible_team}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    eligible_team: Array.from(e.target.selectedOptions).map(
+                      (o) => o.value,
+                    ),
+                  })
+                }
               >
-                <X size={16} /> Cancel
-              </button>
-              <button className="btn btn-primary" disabled={busy}>
-                {busy ? "Saving…" : editing ? "Save changes" : "Create project"}
-              </button>
-            </div>
-          </form>
+                {leaders
+                  .filter((m) => m.role === "team")
+                  .map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.name} — {m.email}
+                    </option>
+                  ))}
+              </select>
+            </Field>
+            <Field label="Description">
+              <textarea
+                rows={3}
+                value={form.description}
+                onChange={(e) =>
+                  setForm({ ...form, description: e.target.value })
+                }
+              />
+            </Field>
+          </div>
         </Modal>
       )}
     </>

@@ -1,287 +1,252 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
+import { Download, Plus, Search, Upload } from "lucide-react";
 import * as XLSX from "xlsx";
-import {
-  Download,
-  Upload,
-  Search,
-  Database,
-  FileSpreadsheet,
-  AlertCircle,
-} from "lucide-react";
-import { useSearchParams } from "react-router-dom";
-import PageHeader from "../components/PageHeader";
-import { api } from "../services/api";
-import type { Project, ResponseRecord, User } from "../types";
-export default function DataRecords({ user }: { user: User }) {
-  const [rows, setRows] = useState<ResponseRecord[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [search, setSearch] = useState("");
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const [fileBusy, setFileBusy] = useState(false);
-  const input = useRef<HTMLInputElement>(null);
-  const [params] = useSearchParams();
-  useEffect(() => {
-    setSearch(params.get("search") || "");
-  }, [params]);
+import { api, body } from "../services/api";
+import type { Project, DataRecord } from "../types";
+import PageTitle from "../components/layout/PageTitle";
+import Modal from "../components/ui/Modal";
+import Field from "../components/forms/Field";
+import DataTable from "../components/tables/DataTable";
+import { downloadCsv, dateLabel } from "../utils/format";
+export default function DataRecords() {
+  const [items, setItems] = useState<DataRecord[]>([]),
+    [projects, setProjects] = useState<Project[]>([]),
+    [query, setQuery] = useState(""),
+    [error, setError] = useState(""),
+    [show, setShow] = useState(false),
+    [busy, setBusy] = useState(false);
+  const [form, setForm] = useState<any>({
+    project_id: "",
+    record_name: "",
+    record_type: "Raw data",
+    record_count: "0",
+    notes: "",
+  });
   async function load() {
     try {
       const [r, p] = await Promise.all([
-        api<ResponseRecord[]>("/responses"),
+        api<DataRecord[]>("/records"),
         api<Project[]>("/projects"),
       ]);
-      setRows(r);
+      setItems(r);
       setProjects(p);
-    } catch (e) {
-      setError((e as Error).message);
+      setError("");
+    } catch (e: any) {
+      setError(e.message);
     }
   }
   useEffect(() => {
     load();
   }, []);
-  function csvEscape(v: unknown) {
-    let s =
-      typeof v === "object" && v !== null ? JSON.stringify(v) : String(v ?? "");
-    if (/^[=+@\-]/.test(s)) s = "'" + s;
-    return '"' + s.replace(/"/g, '""') + '"';
-  }
-  function exportCsv() {
-    const header = [
-      "id",
-      "project_id",
-      "project_name",
-      "respondent_code",
-      "response_date",
-      "channel",
-      "answers",
-      "notes",
-    ];
-    const data = [
-      header,
-      ...rows.map((r) => [
-        r.id,
-        r.project_id,
-        r.project_name,
-        r.respondent_code,
-        r.response_date,
-        r.channel,
-        typeof r.answers === "string" ? r.answers : JSON.stringify(r.answers),
-        r.notes,
-      ]),
-    ];
-    const sheet = XLSX.utils.aoa_to_sheet(data);
-    const book = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(book, sheet, "Research Records");
-    XLSX.writeFile(book, "nexgen-research-records.xlsx");
-    setMessage(`Exported ${rows.length} records to Excel.`);
-  }
-  async function importCsv(file?: File) {
-    if (!file) return;
-    setFileBusy(true);
-    setMessage("");
-    setError("");
+  async function create(e: React.FormEvent) {
+    e.preventDefault();
+    setBusy(true);
     try {
-      let upload: File = file;
-      if (
-        file.name.toLowerCase().endsWith(".xlsx") ||
-        file.name.toLowerCase().endsWith(".xls")
-      ) {
-        const bytes = await file.arrayBuffer();
-        const workbook = XLSX.read(bytes, { type: "array" });
-        const first = workbook.Sheets[workbook.SheetNames[0]];
-        if (!first) throw new Error("The Excel workbook has no worksheets.");
-        const csv = XLSX.utils.sheet_to_csv(first);
-        upload = new File([csv], file.name.replace(/\.(xlsx|xls)$/i, ".csv"), {
-          type: "text/csv",
-        });
-      }
-      const form = new FormData();
-      form.append("file", upload);
-      const result = await api<{ imported: number; errors?: string[] }>(
-        "/responses/import",
-        { method: "POST", body: form },
-      );
-      setMessage(
-        `Imported ${result.imported} responses.${result.errors?.length ? " Some rows were skipped: " + result.errors.slice(0, 3).join("; ") : ""}`,
-      );
+      await api("/records", {
+        method: "POST",
+        body: body({
+          ...form,
+          project_id: form.project_id,
+          record_count: Number(form.record_count || 0),
+        }),
+      });
+      setShow(false);
       await load();
-    } catch (e) {
-      setError((e as Error).message);
+    } catch (e: any) {
+      setError(e.message);
     } finally {
-      setFileBusy(false);
-      if (input.current) input.current.value = "";
+      setBusy(false);
     }
   }
-  const shown = rows.filter((r) =>
-    (
-      r.respondent_code +
-      " " +
-      r.project_name +
-      " " +
-      r.channel +
-      " " +
-      JSON.stringify(r.answers)
-    )
+  async function importFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    try {
+      const wb = XLSX.read(await f.arrayBuffer());
+      const rows = XLSX.utils.sheet_to_json<any>(wb.Sheets[wb.SheetNames[0]]);
+      if (!rows.length) throw new Error("The selected file has no data rows.");
+      await api("/records/import", { method: "POST", body: body({ rows }) });
+      await load();
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      e.target.value = "";
+    }
+  }
+  const filtered = items.filter((r) =>
+    (r.record_name + " " + (r.project_name || ""))
       .toLowerCase()
-      .includes(search.toLowerCase()),
+      .includes(query.toLowerCase()),
   );
+  const exportRows = [
+    ["Record set", "Project", "Type", "Record count", "Notes", "Created"],
+    ...filtered.map((r) => [
+      r.record_name,
+      r.project_name,
+      r.record_type,
+      r.record_count,
+      r.notes,
+      dateLabel(r.created_at),
+    ]),
+  ];
   return (
     <>
-      <PageHeader
-        eyebrow="RESEARCH DATA LIBRARY"
-        title="Data records"
-        description="A practical home for collected research data. Search records or move them in and out with CSV or Excel."
+      <PageTitle
+        title="Data Records"
+        description="Manage collected datasets, validated records and final research datasheets."
         actions={
           <>
-            <button className="btn btn-secondary" onClick={exportCsv}>
-              <Download size={16} /> Export Excel
+            <label className="button secondary upload-button">
+              <Upload size={15} /> Import CSV / Excel
+              <input
+                hidden
+                type="file"
+                accept=".csv,.tsv,.xlsx,.xls"
+                onChange={importFile}
+              />
+            </label>
+            <button className="button primary" onClick={() => setShow(true)}>
+              <Plus size={16} /> Add record set
             </button>
-            <button
-              className="btn btn-primary"
-              onClick={() => input.current?.click()}
-              disabled={fileBusy}
-            >
-              <Upload size={16} />
-              {fileBusy ? "Importing…" : "Import CSV"}
-            </button>
-            <input
-              ref={input}
-              type="file"
-              accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel"
-              hidden
-              onChange={(e) => importCsv(e.target.files?.[0])}
-            />
           </>
         }
       />
-      {message && (
-        <div className="success-box">
-          <FileSpreadsheet size={17} />
-          {message}
+      {error && <div className="error-banner">{error}</div>}
+      <div className="metric-grid compact">
+        <div className="metric-card">
+          <div className="metric-top">Record sets</div>
+          <strong>{items.length}</strong>
+          <small>Stored datasets</small>
         </div>
-      )}
-      {error && <div className="error-box">{error}</div>}
-      <div className="import-hint">
-        <div className="hint-icon">
-          <AlertCircle size={18} />
+        <div className="metric-card">
+          <div className="metric-top">Total records</div>
+          <strong>
+            {items
+              .reduce((n, r) => n + r.record_count, 0)
+              .toLocaleString("en-IN")}
+          </strong>
+          <small>Across visible datasets</small>
         </div>
-        <div>
-          <strong>CSV / Excel import format</strong>
-          <p>
-            Required columns:{" "}
-            <code>project_id, respondent_code, response_date</code>. Optional:{" "}
-            <code>channel, answers, notes</code>. The project ID must already
-            exist; answers can be a JSON string.
-          </p>
+        <div className="metric-card">
+          <div className="metric-top">Projects linked</div>
+          <strong>{new Set(items.map((r) => r.project_id)).size}</strong>
+          <small>Projects with records</small>
         </div>
-        <button
-          className="text-button"
-          onClick={() => {
-            const blob = new Blob(
-              [
-                'project_id (MongoDB ObjectId), respondent_code, response_date,channel,answers,notes\n1,RESP-001,2026-10-15,Online survey,"{\"satisfaction\":5}",Sample note\n',
-              ],
-              { type: "text/csv" },
-            );
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = url;
-            a.download = "nexgen-import-template.csv";
-            a.click();
-            URL.revokeObjectURL(url);
-          }}
+      </div>
+      <section className="surface">
+        <div className="table-toolbar">
+          <div className="search-box">
+            <Search size={16} />
+            <input
+              placeholder="Search datasets…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          <button
+            className="button secondary"
+            onClick={() => downloadCsv("nexgen-data-records.csv", exportRows)}
+          >
+            <Download size={15} /> Export CSV
+          </button>
+        </div>
+        <DataTable
+          headers={[
+            "Dataset / record set",
+            "Project",
+            "Type",
+            "Record count",
+            "Created",
+          ]}
+          empty={!filtered.length}
+          emptyTitle="No data records yet"
+          emptyDescription="Create a record set or import a CSV/Excel file."
         >
-          Get CSV template <Download size={14} />
-        </button>
-      </div>
-      <div className="toolbar">
-        <label className="search-field">
-          <Search size={17} />
-          <input
-            placeholder="Search across respondents, projects and answers…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </label>
-        <span className="result-count">{shown.length} records</span>
-      </div>
-      <section className="panel table-panel">
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Respondent</th>
-                <th>Project</th>
-                <th>Date</th>
-                <th>Channel</th>
-                <th>Answer preview</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((r) => (
-                <tr key={r.id}>
-                  <td>
-                    <div className="table-project">
-                      <div className="respondent-avatar">
-                        <Database size={15} />
-                      </div>
-                      <div>
-                        <strong>{r.respondent_code}</strong>
-                        <span>REC-{String(r.id).padStart(5, "0")}</span>
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <strong className="cell-primary">
-                      {r.project_name || `Project #${r.project_id}`}
-                    </strong>
-                  </td>
-                  <td>{r.response_date}</td>
-                  <td>
-                    <span className="channel-chip">{r.channel || "—"}</span>
-                  </td>
-                  <td>
-                    <code className="json-preview">
-                      {JSON.stringify(
-                        typeof r.answers === "string"
-                          ? safeParse(r.answers)
-                          : r.answers,
-                      ).slice(0, 95) || "{}"}
-                    </code>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {!shown.length && (
-            <div className="empty-table">
-              <div className="empty-icon">
-                <Database size={22} />
-              </div>
-              <strong>No records found</strong>
-              <p>Try another search, add survey responses, or import a CSV.</p>
-            </div>
-          )}
-        </div>
-        <div className="table-foot">
-          <span>
-            Showing {shown.length} of {rows.length} records
-          </span>
-          <span>{projects.length} linked projects</span>
-        </div>
+          {filtered.map((r) => (
+            <tr key={r.id}>
+              <td>
+                <b>{r.record_name}</b>
+                <small className="cell-sub">
+                  {r.notes || "Research dataset"}
+                </small>
+              </td>
+              <td>{r.project_name || "—"}</td>
+              <td>{r.record_type}</td>
+              <td>{r.record_count.toLocaleString("en-IN")}</td>
+              <td>{dateLabel(r.created_at)}</td>
+            </tr>
+          ))}
+        </DataTable>
       </section>
-      <p className="privacy-footnote">
-        Research data may contain confidential information. Export only to
-        approved locations and avoid placing personal identifiers in respondent
-        codes.
-      </p>
+      {show && (
+        <Modal
+          title="Add record set"
+          eyebrow="DATA MANAGEMENT"
+          onClose={() => setShow(false)}
+          onSubmit={create}
+          submitLabel="Save record set"
+          busy={busy}
+        >
+          <div className="form-grid">
+            <Field label="Record set name *">
+              <input
+                required
+                value={form.record_name}
+                onChange={(e) =>
+                  setForm({ ...form, record_name: e.target.value })
+                }
+              />
+            </Field>
+            <Field label="Project *">
+              <select
+                required
+                value={form.project_id}
+                onChange={(e) =>
+                  setForm({ ...form, project_id: e.target.value })
+                }
+              >
+                <option value="">Choose project</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Record type">
+              <select
+                value={form.record_type}
+                onChange={(e) =>
+                  setForm({ ...form, record_type: e.target.value })
+                }
+              >
+                <option>Raw data</option>
+                <option>Cleaned data</option>
+                <option>Validated data</option>
+                <option>Final datasheet</option>
+                <option>Codebook</option>
+              </select>
+            </Field>
+            <Field label="Record count">
+              <input
+                type="number"
+                min="0"
+                value={form.record_count}
+                onChange={(e) =>
+                  setForm({ ...form, record_count: e.target.value })
+                }
+              />
+            </Field>
+            <Field label="Notes">
+              <textarea
+                rows={3}
+                value={form.notes}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              />
+            </Field>
+          </div>
+        </Modal>
+      )}
     </>
   );
-}
-function safeParse(v: string) {
-  try {
-    return JSON.parse(v);
-  } catch {
-    return v;
-  }
 }

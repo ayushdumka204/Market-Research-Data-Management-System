@@ -1,231 +1,199 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   ArrowUpRight,
-  FolderKanban,
-  ClipboardCheck,
-  Activity,
-  FileCheck2,
-  Plus,
-  ArrowRight,
+  BriefcaseBusiness,
+  CheckCircle2,
   Clock3,
-  Download,
-  Sparkles,
+  Target,
+  TrendingUp,
+  ClipboardList,
 } from "lucide-react";
-import PageHeader from "../components/PageHeader";
-import StatusBadge from "../components/StatusBadge";
 import { api } from "../services/api";
-import type { DashboardStats, User } from "../types";
-export default function Dashboard({ user }: { user: User }) {
-  const [data, setData] = useState<DashboardStats | null>(null);
-  const [error, setError] = useState("");
-  const navigate = useNavigate();
+import type { Project, Task } from "../types";
+import PageTitle from "../components/layout/PageTitle";
+import StatusBadge from "../components/ui/StatusBadge";
+import EmptyState from "../components/ui/EmptyState";
+import { dateLabel } from "../utils/format";
+export default function Dashboard({
+  onNavigate,
+}: {
+  onNavigate: (p: string) => void;
+}) {
+  const [projects, setProjects] = useState<Project[]>([]),
+    [tasks, setTasks] = useState<Task[]>([]),
+    [surveys, setSurveys] = useState<any[]>([]),
+    [records, setRecords] = useState<any[]>([]),
+    [error, setError] = useState("");
   useEffect(() => {
-    api<DashboardStats>("/dashboard")
-      .then(setData)
+    Promise.all([
+      api<Project[]>("/projects"),
+      api<Task[]>("/tasks"),
+      api<any[]>("/surveys"),
+      api<any[]>("/records"),
+    ])
+      .then(([p, t, s, r]) => {
+        setProjects(p);
+        setTasks(t);
+        setSurveys(s);
+        setRecords(r);
+      })
       .catch((e) => setError(e.message));
   }, []);
-  const stats = [
-    {
-      label: "Total projects",
-      value: data?.total_projects ?? "—",
-      icon: FolderKanban,
-      tone: "blue",
-      note: "Across all research work",
-    },
+  const metrics = [
     {
       label: "Active projects",
-      value: data?.active_projects ?? "—",
-      icon: Activity,
-      tone: "green",
-      note: "Currently in progress",
+      value: projects.filter((p) => p.status === "ongoing").length,
+      sub: "Currently in progress",
+      icon: BriefcaseBusiness,
     },
     {
-      label: "Survey responses",
-      value: data?.total_responses ?? "—",
-      icon: ClipboardCheck,
-      tone: "violet",
-      note: "Responses captured",
+      label: "Survey target",
+      value: surveys
+        .reduce((n, s) => n + Number(s.response_target || 0), 0)
+        .toLocaleString("en-IN"),
+      sub: "Planned responses",
+      icon: Target,
     },
     {
-      label: "Completed projects",
-      value: data?.completed_projects ?? "—",
-      icon: FileCheck2,
-      tone: "amber",
-      note: "Ready for reporting",
+      label: "Tasks to review",
+      value: tasks.filter((t) => ["submitted", "in_review"].includes(t.status))
+        .length,
+      sub: "Awaiting review",
+      icon: Clock3,
+    },
+    {
+      label: "Approved tasks",
+      value: tasks.filter((t) => t.status === "approved").length,
+      sub: "Reviewed deliverables",
+      icon: CheckCircle2,
     },
   ];
   return (
     <>
-      <PageHeader
-        eyebrow="YOUR RESEARCH, AT A GLANCE"
-        title={`Good morning, ${user.name.split(" ")[0]}.`}
-        description="A clear view of what’s moving, what’s finished, and where your team is focused."
+      <PageTitle
+        title="Dashboard"
+        description="A clear view of research delivery, team activity and priorities."
         actions={
           <button
-            className="btn btn-primary"
-            onClick={() => navigate("/projects?new=1")}
+            className="button secondary"
+            onClick={() => onNavigate("Reports")}
           >
-            <Plus size={17} /> New project
+            View reports <ArrowUpRight size={16} />
           </button>
         }
       />
-      {error && <div className="error-box">{error}</div>}
-      <div className="stats-grid">
-        {stats.map((s) => (
-          <div className="stat-card" key={s.label}>
-            <div className="stat-top">
-              <span>{s.label}</span>
-              <span className={`stat-icon ${s.tone}`}>
-                <s.icon size={18} />
-              </span>
+      {error && <div className="error-banner">{error}</div>}
+      <div className="metric-grid">
+        {metrics.map((m) => (
+          <article className="metric-card" key={m.label}>
+            <div className="metric-top">
+              <span>{m.label}</span>
+              <div className="metric-icon">
+                <m.icon size={18} />
+              </div>
             </div>
-            <div className="stat-number">{s.value}</div>
-            <div className="stat-foot">
-              <span>{s.note}</span>
-              <ArrowUpRight size={15} />
-            </div>
-          </div>
+            <strong>{m.value}</strong>
+            <small>
+              <TrendingUp size={13} />
+              {m.sub}
+            </small>
+          </article>
         ))}
       </div>
       <div className="dashboard-grid">
-        <section className="panel projects-panel">
-          <div className="panel-header">
+        <section className="surface">
+          <div className="section-head">
             <div>
-              <h2>Recent projects</h2>
-              <p>Latest work across your research pipeline</p>
+              <h2>Project portfolio</h2>
+              <p>Recent work across the workspace</p>
             </div>
             <button
               className="text-button"
-              onClick={() => navigate("/projects")}
+              onClick={() => onNavigate("Projects")}
             >
-              View all <ArrowRight size={15} />
+              All projects <ArrowUpRight size={15} />
             </button>
           </div>
-          {!data?.recent_projects?.length ? (
-            <div className="empty-state">
-              <div className="empty-icon">
-                <FolderKanban size={22} />
-              </div>
-              <strong>Your project list starts here</strong>
-              <p>
-                Create a research project to keep briefs, fieldwork and findings
-                together.
-              </p>
-              <button
-                className="btn btn-secondary"
-                onClick={() => navigate("/projects?new=1")}
-              >
-                <Plus size={16} /> Create first project
-              </button>
-            </div>
-          ) : (
-            <div className="project-list">
-              {data.recent_projects.map((p) => (
-                <div className="project-row" key={p.id}>
-                  <div className="project-symbol">
-                    {p.name.slice(0, 1).toUpperCase()}
-                  </div>
-                  <div className="project-main">
-                    <strong>{p.name}</strong>
-                    <span>
-                      {p.client || "Internal research"} ·{" "}
-                      {p.industry || "General"}
-                    </span>
-                    <div className="mini-progress">
-                      <i
-                        style={{
-                          width:
-                            p.status === "completed"
-                              ? "100%"
-                              : p.status === "active"
-                                ? "62%"
-                                : p.status === "on_hold"
-                                  ? "25%"
-                                  : "12%",
-                        }}
-                      />
-                    </div>
-                  </div>
-                  <div className="project-meta">
-                    <StatusBadge status={p.status} />
-                    <span>{p.response_count ?? 0} responses</span>
-                  </div>
-                  <button
-                    className="icon-btn row-open"
-                    title="Open project"
-                    onClick={() => navigate("/projects")}
-                  >
-                    <ArrowUpRight size={17} />
-                  </button>
+          {projects.slice(0, 5).map((p) => {
+            const progress = p.sample_target
+              ? Math.min(
+                  100,
+                  Math.round((p.sample_completed / p.sample_target) * 100),
+                )
+              : 0;
+            return (
+              <div className="project-line" key={p.id}>
+                <div className="project-symbol">
+                  <BriefcaseBusiness size={17} />
                 </div>
-              ))}
-            </div>
+                <div className="project-info">
+                  <b>{p.name}</b>
+                  <small>
+                    {p.client || "Research project"} · Due{" "}
+                    {dateLabel(p.due_date)}
+                  </small>
+                  <div className="progress-track">
+                    <i style={{ width: `${progress}%` }} />
+                  </div>
+                </div>
+                <div className="project-meta">
+                  <StatusBadge status={p.status} />
+                  <small>{progress}%</small>
+                </div>
+              </div>
+            );
+          })}
+          {!projects.length && (
+            <EmptyState
+              title="No projects yet"
+              description="Create a project to start tracking delivery."
+            />
           )}
         </section>
-        <section className="panel activity-panel">
-          <div className="panel-header">
+        <section className="surface">
+          <div className="section-head">
             <div>
-              <h2>Workspace pulse</h2>
-              <p>A quick look at your data</p>
+              <h2>Recent task activity</h2>
+              <p>Daily updates and review status</p>
             </div>
-            <span className="live-label">
-              <i /> LIVE
+            <button
+              className="text-button"
+              onClick={() => onNavigate("Data Records")}
+            >
+              Data records <ArrowUpRight size={15} />
+            </button>
+          </div>
+          {tasks.slice(0, 6).map((t) => (
+            <div className="task-line" key={t.id}>
+              <div className="task-dot" />
+              <div className="task-info">
+                <b>{t.title}</b>
+                <small>
+                  {t.work_date ? dateLabel(t.work_date) : "No work date"} ·{" "}
+                  {t.project_name || "Research project"}
+                </small>
+              </div>
+              <StatusBadge status={t.status} />
+            </div>
+          ))}
+          {!tasks.length && (
+            <EmptyState
+              title="No task activity"
+              description="Assigned tasks will show up here."
+            />
+          )}
+          <div className="mini-stat-row">
+            <span>
+              <ClipboardList size={15} /> Survey instruments
             </span>
-          </div>
-          <div className="pulse-visual">
-            <div className="pulse-orbit orbit-one" />
-            <div className="pulse-orbit orbit-two" />
-            <div className="pulse-core">
-              <Sparkles size={24} />
-            </div>
-          </div>
-          <div className="pulse-copy">
-            <strong>Research in one place.</strong>
-            <p>
-              Projects, responses and reporting are connected so your team can
-              spend less time chasing files.
-            </p>
-          </div>
-          <div className="quick-links">
-            <button onClick={() => navigate("/surveys")}>
-              <span className="quick-icon mint">
-                <ClipboardCheck size={17} />
-              </span>
-              <span>
-                <strong>Capture responses</strong>
-                <small>Add newly collected survey data</small>
-              </span>
-              <ArrowRight size={16} />
-            </button>
-            <button onClick={() => navigate("/records")}>
-              <span className="quick-icon blue">
-                <Download size={17} />
-              </span>
-              <span>
-                <strong>Manage data records</strong>
-                <small>Search, import or export CSV</small>
-              </span>
-              <ArrowRight size={16} />
-            </button>
+            <b>{surveys.length}</b>
+            <span>
+              <Target size={15} /> Data record sets
+            </span>
+            <b>{records.length}</b>
           </div>
         </section>
       </div>
-      <section className="panel bottom-note">
-        <div className="note-icon">
-          <Clock3 size={19} />
-        </div>
-        <div>
-          <strong>Keep the research trail clear</strong>
-          <p>
-            Use consistent project names and respondent codes to make reporting
-            more reliable.
-          </p>
-        </div>
-        <button className="text-button" onClick={() => navigate("/reports")}>
-          Explore reports <ArrowRight size={15} />
-        </button>
-      </section>
     </>
   );
 }

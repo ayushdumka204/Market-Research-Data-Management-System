@@ -1,252 +1,155 @@
 import { useEffect, useState } from "react";
-import {
-  Navigate,
-  Route,
-  Routes,
-  useLocation,
-  useNavigate,
-} from "react-router-dom";
-import {
-  LayoutDashboard,
-  FolderKanban,
-  ClipboardList,
-  Database,
-  FileChartColumn,
-  Settings as SettingsIcon,
-  Sun,
-  Moon,
-  Bell,
-  Search,
-  Menu,
-  LogOut,
-  ChevronDown,
-  Command,
-  ShieldCheck,
-  type LucideIcon,
-} from "lucide-react";
-import { api, clearSession, getToken, setSession } from "./services/api";
-import type { User } from "./types";
+import { api, clearSession, getUser } from "./services/api";
+import Sidebar from "./components/layout/Sidebar";
+import Header from "./components/layout/Header";
+import Toast from "./components/layout/Toast";
+import Login from "./pages/Login";
 import Dashboard from "./pages/Dashboard";
 import Projects from "./pages/Projects";
+import Tasks from "./pages/Tasks";
+import ProjectFiles from "./pages/ProjectFiles";
 import SurveyData from "./pages/SurveyData";
 import DataRecords from "./pages/DataRecords";
-import Reports from "./pages/Reports";
-import Settings from "./pages/Settings";
-import Login from "./pages/Login";
-type NavItem = readonly [label: string, path: string, icon: LucideIcon];
-type NavGroup = { label: string; items: readonly NavItem[] };
+import TeamUsers from "./pages/TeamUsers";
+import TeamWorkload from "./pages/TeamWorkload";
+import Notifications from "./pages/Notifications";
 
-const nav: readonly NavGroup[] = [
-  {
-    label: "Overview",
-    items: [
-      ["Dashboard", "/", LayoutDashboard],
-      ["Projects", "/projects", FolderKanban],
-      ["Survey data", "/surveys", ClipboardList],
-      ["Data records", "/records", Database],
-      ["Reports", "/reports", FileChartColumn],
-    ] as const,
-  },
-  {
-    label: "Workspace",
-    items: [["Settings", "/settings", SettingsIcon]] as const,
-  },
+function Settings({
+  user,
+  dark,
+  onTheme,
+  onLogout,
+}: {
+  user: any;
+  dark: boolean;
+  onTheme: () => void;
+  onLogout: () => void;
+}) {
+  return (
+    <section>
+      <h1>Settings</h1>
+      <p>{user?.email}</p>
+      <button type="button" onClick={onTheme}>
+        Switch to {dark ? "light" : "dark"} theme
+      </button>
+      <button type="button" onClick={onLogout}>
+        Sign out
+      </button>
+    </section>
+  );
+}
+
+function Reports() {
+  return (
+    <section>
+      <h1>Reports</h1>
+      <p>Reports are currently unavailable.</p>
+    </section>
+  );
+}
+
+const PAGE_NAMES = [
+  "Dashboard",
+  "Projects",
+  "Tasks & Daily Updates",
+  "Project Files & Data",
+  "Survey Data",
+  "Data Records",
+  "Reports",
+  "Team & Users",
+  "Notifications",
+  "Settings",
 ];
 export default function App() {
-  const [user, setUser] = useState<User | null>(() => {
-    try {
-      return JSON.parse(localStorage.getItem("nexgen_user") || "null");
-    } catch {
-      return null;
-    }
-  });
-  const [dark, setDark] = useState(
-    localStorage.getItem("nexgen_theme") === "dark",
-  );
-  const [mobile, setMobile] = useState(false);
-  const [query, setQuery] = useState("");
-  const location = useLocation();
-  const navigate = useNavigate();
+  const [user, setUser] = useState<any>(getUser()),
+    [page, setPage] = useState("Dashboard"),
+    [dark, setDark] = useState(localStorage.getItem("nexgen_theme") === "dark"),
+    [collapsed, setCollapsed] = useState(false),
+    [toast, setToast] = useState<{
+      text: string;
+      kind: "success" | "error";
+    } | null>(null);
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
     localStorage.setItem("nexgen_theme", dark ? "dark" : "light");
   }, [dark]);
   useEffect(() => {
-    if (getToken() && !user)
-      api<{ user: User }>("/auth/me")
-        .then((d) => setUser(d.user))
-        .catch(() => {
-          clearSession();
-          setUser(null);
-        });
+    if (!user) return;
+    api("/auth/me")
+      .then((r: any) => {
+        if (r.user) {
+          setUser(r.user);
+          localStorage.setItem("nexgen_user", JSON.stringify(r.user));
+        }
+      })
+      .catch(() => {
+        clearSession();
+        setUser(null);
+      });
   }, []);
-  async function login(email: string, password: string) {
-    const d = await api<{ token: string; user: User }>("/auth/login", {
-      method: "POST",
-      body: JSON.stringify({ email, password }),
-    });
-    setSession(d.token, d.user);
-    setUser(d.user);
-  }
   function logout() {
+    api("/auth/logout", { method: "POST" }).catch(() => {});
     clearSession();
     setUser(null);
-    navigate("/login");
+    setPage("Dashboard");
+  }
+  function navigate(p: string) {
+    setPage(p);
+    if (p === "Notifications") setToast(null);
   }
   if (!user)
     return (
-      <Routes>
-        <Route path="/login" element={<Login onLogin={login} />} />
-        <Route path="*" element={<Navigate to="/login" replace />} />
-      </Routes>
+      <Login
+        onLogin={(u) => {
+          setUser(u);
+          setToast({ text: "Signed in successfully.", kind: "success" });
+        }}
+      />
     );
-  const current =
-    nav.flatMap((g) => g.items).find((i) => i[1] === location.pathname)?.[0] ||
-    "Dashboard";
   return (
     <div className="app-shell">
-      <aside className={`sidebar ${mobile ? "sidebar-open" : ""}`}>
-        <div className="brand">
-          <div className="brand-mark">
-            <Command size={22} />
-          </div>
-          <div>
-            <div className="brand-name">
-              NexGen<span>.</span>
-            </div>
-            <div className="brand-caption">RESEARCH WORKSPACE</div>
-          </div>
-          <button
-            className="icon-btn mobile-close"
-            onClick={() => setMobile(false)}
-          >
-            ×
-          </button>
-        </div>
-        <div className="workspace-switch">
-          <div className="workspace-avatar">N</div>
-          <div className="workspace-copy">
-            <strong>NexGen Market Research</strong>
-            <span>Internal workspace</span>
-          </div>
-          <ChevronDown size={15} />
-        </div>
-        <nav className="nav-area">
-          {nav.map((group) => (
-            <div className="nav-group" key={group.label}>
-              <div className="nav-label">{group.label}</div>
-              {group.items.map(([label, path, Icon]) => (
-                <button
-                  key={path}
-                  onClick={() => {
-                    navigate(path);
-                    setMobile(false);
-                  }}
-                  className={`nav-link ${location.pathname === path ? "active" : ""}`}
-                >
-                  <Icon size={18} />
-                  <span>{label}</span>
-                  {label === "Projects" && <span className="nav-dot" />}
-                </button>
-              ))}
-            </div>
-          ))}
-        </nav>
-        <div className="sidebar-bottom">
-          <div className="security-note">
-            <ShieldCheck size={17} />
-            <div>
-              <strong>Workspace protected</strong>
-              <span>Role-based access enabled</span>
-            </div>
-          </div>
-          <button className="profile-row" onClick={logout}>
-            <div className="avatar">{user.name.slice(0, 1).toUpperCase()}</div>
-            <div className="profile-info">
-              <strong>{user.name}</strong>
-              <span>
-                {user.role === "admin" ? "Administrator" : "Research team"}
-              </span>
-            </div>
-            <LogOut size={16} />
-          </button>
-        </div>
-      </aside>
-      {mobile && (
-        <button
-          aria-label="Close menu"
-          className="mobile-scrim"
-          onClick={() => setMobile(false)}
+      <Sidebar
+        page={page}
+        onNavigate={navigate}
+        user={user}
+        onLogout={logout}
+        collapsed={collapsed}
+        onToggle={() => setCollapsed((v) => !v)}
+      />
+      <main className="main-shell">
+        <Header
+          page={page}
+          dark={dark}
+          onTheme={() => setDark((v) => !v)}
+          onNotifications={() => navigate("Notifications")}
+          user={user}
         />
-      )}
-      <main className="main-area">
-        <header className="topbar">
-          <div className="topbar-left">
-            <button
-              className="icon-btn mobile-menu"
-              onClick={() => setMobile(true)}
-            >
-              <Menu size={20} />
-            </button>
-            <div className="breadcrumbs">
-              <span>Workspace</span>
-              <span className="crumb-slash">/</span>
-              <strong>{current}</strong>
-            </div>
-          </div>
-          <div className="topbar-actions">
-            <label className="global-search">
-              <Search size={16} />
-              <input
-                placeholder="Search workspace…"
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                onKeyDown={(e) =>
-                  e.key === "Enter" &&
-                  navigate("/records?search=" + encodeURIComponent(query))
-                }
-              />
-              <kbd>↵</kbd>
-            </label>
-            <button
-              className="icon-btn theme-toggle"
-              title="Toggle theme"
-              onClick={() => setDark((v) => !v)}
-            >
-              {dark ? <Sun size={18} /> : <Moon size={18} />}
-            </button>
-            <button className="icon-btn notification-btn" title="Notifications">
-              <Bell size={18} />
-              <i />
-            </button>
-            <div className="top-avatar">
-              {user.name.slice(0, 1).toUpperCase()}
-            </div>
-          </div>
-        </header>
         <div className="page-content">
-          <Routes>
-            <Route path="/" element={<Dashboard user={user} />} />
-            <Route path="/projects" element={<Projects user={user} />} />
-            <Route path="/surveys" element={<SurveyData user={user} />} />
-            <Route path="/records" element={<DataRecords user={user} />} />
-            <Route path="/reports" element={<Reports user={user} />} />
-            <Route
-              path="/settings"
-              element={<Settings user={user} dark={dark} setDark={setDark} />}
+          {page === "Dashboard" && <Dashboard onNavigate={navigate} />}
+          {page === "Projects" && <Projects user={user} />}
+          {page === "Tasks & Daily Updates" && <Tasks user={user} />}
+          {page === "Project Files & Data" && <ProjectFiles />}
+          {page === "Survey Data" && <SurveyData />}
+          {page === "Data Records" && <DataRecords />}
+          {page === "Reports" && <Reports />}
+          {page === "Team & Users" && user.role === "admin" && <TeamUsers />}
+          {page === "Team & Workload" && <TeamWorkload user={user} />}
+          {page === "Notifications" && <Notifications />}
+          {page === "Settings" && (
+            <Settings
+              user={user}
+              dark={dark}
+              onTheme={() => setDark((v) => !v)}
+              onLogout={logout}
             />
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
+          )}
         </div>
         <footer className="app-footer">
-          <span>
-            © {new Date().getFullYear()} NexGen Market Research Services
-          </span>
-          <span>
-            <i className="online-dot" /> All systems operational
-          </span>
+          <span>© {new Date().getFullYear()} NexGen Market Research</span>
+          <span>Research, organised.</span>
         </footer>
       </main>
+      <Toast message={toast} onClose={() => setToast(null)} />
     </div>
   );
 }

@@ -1,1 +1,1 @@
-/** @type {import('tailwindcss').Config} */ export default { content: ['./index.html','./src/**/*.{ts,tsx}'], darkMode: 'class', theme: { extend: { colors: { ink: '#17324f', accent: '#2463eb', mint: '#0f9f79' }, boxShadow: { soft: '0 8px 28px rgba(15, 35, 60, .06)' } } }, plugins: [] };
+export default {content:["./index.html","./src/**/*.{js,ts,jsx,tsx}"],theme:{extend:{fontFamily:{sans:["Inter","system-ui","sans-serif"]},colors:{brand:"#0051cc",accent:"#00b140"}}},plugins:[]};

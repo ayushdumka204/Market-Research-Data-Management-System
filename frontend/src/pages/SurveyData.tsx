@@ -1,376 +1,280 @@
 import { useEffect, useState } from "react";
-import {
-  Plus,
-  Search,
-  ClipboardList,
-  Pencil,
-  Trash2,
-  X,
-  ExternalLink,
-} from "lucide-react";
-import PageHeader from "../components/PageHeader";
-import Modal from "../components/Modal";
-import { api } from "../services/api";
-import type { Project, ResponseRecord, User } from "../types";
-type Draft = {
-  project_id: string;
-  respondent_code: string;
-  response_date: string;
-  channel: string;
-  answers: string;
-  notes: string;
-};
-const blank: Draft = {
-  project_id: "",
-  respondent_code: "",
-  response_date: new Date().toISOString().slice(0, 10),
-  channel: "Field survey",
-  answers: "{}",
-  notes: "",
-};
-export default function SurveyData({ user }: { user: User }) {
-  const [rows, setRows] = useState<ResponseRecord[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [search, setSearch] = useState("");
-  const [project, setProject] = useState("all");
-  const [modal, setModal] = useState(false);
-  const [editing, setEditing] = useState<ResponseRecord | null>(null);
-  const [draft, setDraft] = useState<Draft>(blank);
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState(false);
-  const admin = user.role === "admin";
+import { Download, Plus, Search, UploadCloud } from "lucide-react";
+import * as XLSX from "xlsx";
+import { api, body } from "../services/api";
+import type { Project, Survey } from "../types";
+import PageTitle from "../components/layout/PageTitle";
+import StatusBadge from "../components/ui/StatusBadge";
+import Modal from "../components/ui/Modal";
+import Field from "../components/forms/Field";
+import DataTable from "../components/tables/DataTable";
+import { downloadCsv } from "../utils/format";
+export default function SurveyData() {
+  const [items, setItems] = useState<Survey[]>([]),
+    [projects, setProjects] = useState<Project[]>([]),
+    [query, setQuery] = useState(""),
+    [error, setError] = useState(""),
+    [show, setShow] = useState(false),
+    [busy, setBusy] = useState(false);
+  const [form, setForm] = useState<any>({
+    project_id: "",
+    survey_name: "",
+    source: "Field survey",
+    response_target: "",
+    response_count: "0",
+    notes: "",
+  });
   async function load() {
     try {
-      const [r, p] = await Promise.all([
-        api<ResponseRecord[]>("/responses"),
+      const [s, p] = await Promise.all([
+        api<Survey[]>("/surveys"),
         api<Project[]>("/projects"),
       ]);
-      setRows(r);
+      setItems(s);
       setProjects(p);
-    } catch (e) {
-      setError((e as Error).message);
+      setError("");
+    } catch (e: any) {
+      setError(e.message);
     }
   }
   useEffect(() => {
     load();
   }, []);
-  function openNew() {
-    setEditing(null);
-    setDraft({
-      ...blank,
-      project_id: projects[0] ? String(projects[0].id) : "",
-    });
-    setError("");
-    setModal(true);
-  }
-  function edit(r: ResponseRecord) {
-    setEditing(r);
-    setDraft({
-      project_id: String(r.project_id),
-      respondent_code: r.respondent_code,
-      response_date: r.response_date,
-      channel: r.channel || "Field survey",
-      answers:
-        typeof r.answers === "string"
-          ? r.answers
-          : JSON.stringify(r.answers, null, 2),
-      notes: r.notes || "",
-    });
-    setError("");
-    setModal(true);
-  }
-  async function save(e: React.FormEvent) {
+  async function create(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
-    setError("");
-    let answers: unknown;
     try {
-      answers = JSON.parse(draft.answers || "{}");
-    } catch {
-      setError('Answers must be valid JSON, for example {"Q1":"Yes"}.');
-      setBusy(false);
-      return;
-    }
-    try {
-      const body = { ...draft, project_id: draft.project_id, answers };
-      if (editing)
-        await api(`/responses/${editing.id}`, {
-          method: "PUT",
-          body: JSON.stringify(body),
-        });
-      else
-        await api("/responses", { method: "POST", body: JSON.stringify(body) });
-      setModal(false);
+      await api("/surveys", {
+        method: "POST",
+        body: body({
+          ...form,
+          project_id: form.project_id,
+          response_target: Number(form.response_target || 0),
+          response_count: Number(form.response_count || 0),
+        }),
+      });
+      setShow(false);
       await load();
-    } catch (e) {
-      setError((e as Error).message);
+    } catch (e: any) {
+      setError(e.message);
     } finally {
       setBusy(false);
     }
   }
-  async function remove(r: ResponseRecord) {
-    if (!confirm(`Delete response ${r.respondent_code}?`)) return;
+  async function importFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const f = e.target.files?.[0];
+    if (!f) return;
     try {
-      await api(`/responses/${r.id}`, { method: "DELETE" });
+      const buf = await f.arrayBuffer();
+      const wb = XLSX.read(buf);
+      const rows = XLSX.utils.sheet_to_json<any>(wb.Sheets[wb.SheetNames[0]]);
+      if (!rows.length) throw new Error("The selected file has no data rows.");
+      await api("/surveys/import", { method: "POST", body: body({ rows }) });
       await load();
-    } catch (e) {
-      setError((e as Error).message);
+    } catch (e: any) {
+      setError(e.message);
+    } finally {
+      e.target.value = "";
     }
   }
-  const shown = rows.filter(
-    (r) =>
-      (r.respondent_code + " " + r.project_name + " " + r.channel)
-        .toLowerCase()
-        .includes(search.toLowerCase()) &&
-      (project === "all" || String(r.project_id) === project),
+  const filtered = items.filter((s) =>
+    (s.survey_name + " " + (s.project_name || ""))
+      .toLowerCase()
+      .includes(query.toLowerCase()),
   );
+  const exportRows = [
+    [
+      "Survey name",
+      "Project",
+      "Source",
+      "Response target",
+      "Responses received",
+      "Status",
+    ],
+    ...filtered.map((s) => [
+      s.survey_name,
+      s.project_name,
+      s.source,
+      s.response_target,
+      s.response_count,
+      s.status,
+    ]),
+  ];
   return (
     <>
-      <PageHeader
-        eyebrow="FIELDWORK & RESPONSES"
-        title="Survey data"
-        description="Capture incoming responses and keep each record linked to the right research project."
+      <PageTitle
+        title="Survey Data"
+        description="Organise survey instruments, fieldwork sources and response collection."
         actions={
-          <button className="btn btn-primary" onClick={openNew}>
-            <Plus size={17} /> Add response
-          </button>
+          <>
+            <label className="button secondary upload-button">
+              <UploadCloud size={15} /> Import CSV / Excel
+              <input
+                hidden
+                type="file"
+                accept=".csv,.tsv,.xlsx,.xls"
+                onChange={importFile}
+              />
+            </label>
+            <button className="button primary" onClick={() => setShow(true)}>
+              <Plus size={16} /> Add survey
+            </button>
+          </>
         }
       />
-      {error && !modal && <div className="error-box">{error}</div>}
-      <div className="toolbar">
-        <label className="search-field">
-          <Search size={17} />
-          <input
-            placeholder="Search respondent code, project or channel…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
-        </label>
-        <div className="filter-control">
-          <ClipboardList size={16} />
-          <select value={project} onChange={(e) => setProject(e.target.value)}>
-            <option value="all">All projects</option>
-            {projects.map((p) => (
-              <option value={p.id} key={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
+      {error && <div className="error-banner">{error}</div>}
+      <div className="metric-grid compact">
+        <div className="metric-card">
+          <div className="metric-top">Survey instruments</div>
+          <strong>{items.length}</strong>
+          <small>Tracked in workspace</small>
         </div>
-        <span className="result-count">{shown.length} responses</span>
+        <div className="metric-card">
+          <div className="metric-top">Response target</div>
+          <strong>
+            {items
+              .reduce((n, s) => n + s.response_target, 0)
+              .toLocaleString("en-IN")}
+          </strong>
+          <small>Combined target</small>
+        </div>
+        <div className="metric-card">
+          <div className="metric-top">Responses received</div>
+          <strong>
+            {items
+              .reduce((n, s) => n + s.response_count, 0)
+              .toLocaleString("en-IN")}
+          </strong>
+          <small>Reported response count</small>
+        </div>
       </div>
-      <section className="panel table-panel">
-        <div className="table-wrap">
-          <table>
-            <thead>
-              <tr>
-                <th>Respondent</th>
-                <th>Research project</th>
-                <th>Response date</th>
-                <th>Collection channel</th>
-                <th>Answer fields</th>
-                <th className="right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((r) => (
-                <tr key={r.id}>
-                  <td>
-                    <div className="table-project">
-                      <div className="respondent-avatar">
-                        {r.respondent_code.slice(0, 1).toUpperCase()}
-                      </div>
-                      <div>
-                        <strong>{r.respondent_code}</strong>
-                        <span>RES-{String(r.id).padStart(5, "0")}</span>
-                      </div>
-                    </div>
-                  </td>
-                  <td>
-                    <strong className="cell-primary">
-                      {r.project_name || `Project #${r.project_id}`}
-                    </strong>
-                  </td>
-                  <td>{r.response_date}</td>
-                  <td>
-                    <span className="channel-chip">
-                      {r.channel || "Unspecified"}
-                    </span>
-                  </td>
-                  <td>
-                    <span className="response-count">
-                      {
-                        Object.keys(
-                          typeof r.answers === "string"
-                            ? safeJson(r.answers)
-                            : r.answers || {},
-                        ).length
-                      }
-                    </span>{" "}
-                    fields
-                  </td>
-                  <td>
-                    <div className="table-actions">
-                      <button
-                        className="icon-btn"
-                        title="Edit response"
-                        onClick={() => edit(r)}
-                      >
-                        <Pencil size={15} />
-                      </button>
-                      {admin && (
-                        <button
-                          className="icon-btn danger-hover"
-                          title="Delete response"
-                          onClick={() => remove(r)}
-                        >
-                          <Trash2 size={15} />
-                        </button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {shown.length === 0 && (
-            <div className="empty-table">
-              <div className="empty-icon">
-                <ClipboardList size={22} />
-              </div>
-              <strong>No survey responses yet</strong>
-              <p>Add a response manually or import a CSV from Data Records.</p>
-              <button className="btn btn-secondary" onClick={openNew}>
-                <Plus size={16} /> Add response
-              </button>
-            </div>
-          )}
+      <section className="surface">
+        <div className="table-toolbar">
+          <div className="search-box">
+            <Search size={16} />
+            <input
+              placeholder="Search survey instruments…"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          <button
+            className="button secondary"
+            onClick={() => downloadCsv("nexgen-surveys.csv", exportRows)}
+          >
+            <Download size={15} /> Export CSV
+          </button>
         </div>
-        <div className="table-foot">
-          <span>
-            Showing {shown.length} of {rows.length} responses
-          </span>
-          <span>Answers are stored as structured JSON</span>
-        </div>
-      </section>
-      {modal && (
-        <Modal
-          title={editing ? "Edit survey response" : "Add survey response"}
-          onClose={() => setModal(false)}
+        <DataTable
+          headers={[
+            "Survey / instrument",
+            "Project",
+            "Data source",
+            "Target responses",
+            "Received",
+            "Status",
+          ]}
+          empty={!filtered.length}
+          emptyTitle="No survey data yet"
+          emptyDescription="Add a survey instrument to begin organising collection."
         >
-          <form onSubmit={save} className="form-stack">
-            <div className="form-grid">
-              <div className="form-field full">
-                <label>Research project *</label>
-                <select
-                  required
-                  value={draft.project_id}
-                  onChange={(e) =>
-                    setDraft({ ...draft, project_id: e.target.value })
-                  }
-                >
-                  <option value="">Choose a project</option>
-                  {projects.map((p) => (
-                    <option value={p.id} key={p.id}>
-                      {p.name}
-                    </option>
-                  ))}
-                </select>
-                {!projects.length && (
-                  <small>Create a project before adding responses.</small>
-                )}
-              </div>
-              <div className="form-field">
-                <label>Respondent code *</label>
-                <input
-                  required
-                  value={draft.respondent_code}
-                  onChange={(e) =>
-                    setDraft({ ...draft, respondent_code: e.target.value })
-                  }
-                  placeholder="e.g. RESP-001"
-                />
-              </div>
-              <div className="form-field">
-                <label>Response date *</label>
-                <input
-                  type="date"
-                  required
-                  value={draft.response_date}
-                  onChange={(e) =>
-                    setDraft({ ...draft, response_date: e.target.value })
-                  }
-                />
-              </div>
-              <div className="form-field full">
-                <label>Collection channel</label>
-                <select
-                  value={draft.channel}
-                  onChange={(e) =>
-                    setDraft({ ...draft, channel: e.target.value })
-                  }
-                >
-                  <option>Field survey</option>
-                  <option>Telephone</option>
-                  <option>Online survey</option>
-                  <option>In-person interview</option>
-                  <option>Focus group</option>
-                  <option>Other</option>
-                </select>
-              </div>
-              <div className="form-field full">
-                <label>Answers (JSON) *</label>
-                <textarea
-                  rows={5}
-                  required
-                  value={draft.answers}
-                  onChange={(e) =>
-                    setDraft({ ...draft, answers: e.target.value })
-                  }
-                  className="code-input"
-                />
-                <small>
-                  Example: {'{"age_group":"25-34","satisfaction":5}'}
+          {filtered.map((s) => (
+            <tr key={s.id}>
+              <td>
+                <b>{s.survey_name}</b>
+                <small className="cell-sub">
+                  {s.notes || "Survey instrument"}
                 </small>
-              </div>
-              <div className="form-field full">
-                <label>Notes</label>
-                <textarea
-                  rows={2}
-                  value={draft.notes}
-                  onChange={(e) =>
-                    setDraft({ ...draft, notes: e.target.value })
-                  }
-                  placeholder="Optional field notes…"
-                />
-              </div>
-            </div>
-            {error && <div className="error-box">{error}</div>}
-            <div className="modal-actions">
-              <button
-                type="button"
-                className="btn btn-ghost"
-                onClick={() => setModal(false)}
+              </td>
+              <td>{s.project_name || "—"}</td>
+              <td>{s.source || "—"}</td>
+              <td>{s.response_target.toLocaleString("en-IN")}</td>
+              <td>{s.response_count.toLocaleString("en-IN")}</td>
+              <td>
+                <StatusBadge status={s.status} />
+              </td>
+            </tr>
+          ))}
+        </DataTable>
+      </section>
+      {show && (
+        <Modal
+          title="Add survey instrument"
+          eyebrow="FIELDWORK SETUP"
+          onClose={() => setShow(false)}
+          onSubmit={create}
+          submitLabel="Save survey"
+          busy={busy}
+        >
+          <div className="form-grid">
+            <Field label="Survey name *">
+              <input
+                required
+                value={form.survey_name}
+                onChange={(e) =>
+                  setForm({ ...form, survey_name: e.target.value })
+                }
+              />
+            </Field>
+            <Field label="Project *">
+              <select
+                required
+                value={form.project_id}
+                onChange={(e) =>
+                  setForm({ ...form, project_id: e.target.value })
+                }
               >
-                <X size={16} /> Cancel
-              </button>
-              <button
-                className="btn btn-primary"
-                disabled={busy || !projects.length}
+                <option value="">Choose project</option>
+                {projects.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name}
+                  </option>
+                ))}
+              </select>
+            </Field>
+            <Field label="Data source">
+              <select
+                value={form.source}
+                onChange={(e) => setForm({ ...form, source: e.target.value })}
               >
-                {busy ? "Saving…" : editing ? "Save changes" : "Save response"}
-              </button>
-            </div>
-          </form>
+                <option>Field survey</option>
+                <option>Online survey</option>
+                <option>CATI</option>
+                <option>CAWI</option>
+                <option>Secondary research</option>
+                <option>Other</option>
+              </select>
+            </Field>
+            <Field label="Response target">
+              <input
+                type="number"
+                min="0"
+                value={form.response_target}
+                onChange={(e) =>
+                  setForm({ ...form, response_target: e.target.value })
+                }
+              />
+            </Field>
+            <Field label="Responses received">
+              <input
+                type="number"
+                min="0"
+                value={form.response_count}
+                onChange={(e) =>
+                  setForm({ ...form, response_count: e.target.value })
+                }
+              />
+            </Field>
+            <Field label="Notes">
+              <textarea
+                rows={3}
+                value={form.notes}
+                onChange={(e) => setForm({ ...form, notes: e.target.value })}
+              />
+            </Field>
+          </div>
         </Modal>
       )}
     </>
   );
-}
-function safeJson(v: string) {
-  try {
-    return JSON.parse(v);
-  } catch {
-    return {};
-  }
 }
