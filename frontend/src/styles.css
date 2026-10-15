@@ -1504,3 +1504,723 @@ tbody tr:last-child td {
     grid-template-columns: 1fr 1fr;
   }
 }
+
+/* ==========================================================
+   NEXGEN READABILITY + OFF-WHITE THEME OVERRIDES
+   Appended intentionally so existing component layouts remain.
+   ========================================================== */
+
+:root {
+  font-family: Inter, ui-sans-serif, system-ui, sans-serif;
+  color: #263244;
+  background: #f8f7f3;
+  font-size: 15px;
+  line-height: 1.55;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+html {
+  font-size: 15px;
+  background: #f8f7f3;
+}
+
+body {
+  background: #f8f7f3;
+  color: #263244;
+  font-size: 15px;
+  line-height: 1.55;
+}
+
+button, input, select, textarea {
+  font-size: 14px;
+  line-height: 1.45;
+}
+
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible,
+a:focus-visible {
+  outline: 3px solid #80adff;
+  outline-offset: 2px;
+}
+
+/* Light theme: soft off-white canvas, crisp white surfaces */
+.app-shell,
+.main-shell {
+  background: #f8f7f3;
+  color: #263244;
+}
+
+.sidebar,
+.topbar,
+.surface,
+.metric-card,
+.modal-card,
+.login-form-wrap,
+.toast {
+  background: #fffefa;
+  border-color: #dedfdc;
+}
+
+.sidebar {
+  box-shadow: 2px 0 12px rgb(35 45 60 / 3%);
+}
+
+.topbar {
+  border-bottom-color: #dedfdc;
+}
+
+.page-content {
+  padding-top: 32px;
+  padding-bottom: 28px;
+}
+
+.page-title {
+  margin-bottom: 28px;
+}
+
+.page-title h1 {
+  color: #172033;
+  font-size: 32px;
+  font-weight: 750;
+  line-height: 1.2;
+  letter-spacing: -0.8px;
+}
+
+.eyebrow {
+  font-size: 11px;
+  line-height: 1.4;
+  letter-spacing: 1.35px;
+}
+
+.subtitle {
+  color: #59677b;
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.nav-caption {
+  color: #69778b;
+  font-size: 11px;
+}
+
+.nav-item {
+  color: #435168;
+  font-size: 14px;
+  font-weight: 500;
+  padding-top: 12px;
+  padding-bottom: 12px;
+}
+
+.nav-item.active {
+  color: #0047b8;
+  font-weight: 700;
+}
+
+.brand b {
+  color: #172033;
+  font-size: 18px;
+  font-weight: 750;
+}
+
+.brand small {
+  color: #59677b;
+  font-size: 10px;
+}
+
+.profile-copy b {
+  color: #172033;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.profile-copy small {
+  color: #59677b;
+  font-size: 12px;
+}
+
+.breadcrumb {
+  color: #59677b;
+  font-size: 13px;
+}
+
+.breadcrumb strong {
+  color: #263244;
+  font-weight: 700;
+}
+
+.user-chip {
+  color: #435168;
+  font-size: 13px;
+}
+
+.global-search input,
+.search-box input {
+  color: #263244;
+  font-size: 14px;
+}
+
+.global-search input::placeholder,
+.search-box input::placeholder,
+input::placeholder,
+textarea::placeholder {
+  color: #758196;
+  opacity: 1;
+}
+
+.button {
+  min-height: 40px;
+  padding: 10px 15px;
+  font-size: 14px;
+  font-weight: 650;
+  line-height: 1.35;
+}
+
+.button.small {
+  min-height: 34px;
+  padding: 7px 11px;
+  font-size: 13px;
+}
+
+.metric-card {
+  padding: 20px;
+  border-color: #dedfdc;
+  box-shadow: 0 3px 12px rgb(35 45 60 / 4%);
+}
+
+.metric-top {
+  color: #526176;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.metric-card > strong {
+  color: #172033;
+  font-size: 32px;
+  font-weight: 750;
+  line-height: 1.2;
+}
+
+.metric-card > small {
+  color: #59677b;
+  font-size: 12px;
+}
+
+.surface {
+  padding: 22px;
+  border-color: #dedfdc;
+  border-radius: 15px;
+  box-shadow: 0 3px 14px rgb(35 45 60 / 4%);
+}
+
+.section-head h2,
+.settings-card h2 {
+  color: #172033;
+  font-size: 18px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+
+.section-head p {
+  color: #59677b;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.text-button {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.project-info b,
+.task-info b {
+  color: #263244;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.project-info small,
+.task-info small {
+  color: #59677b;
+  font-size: 12px;
+}
+
+.progress-track {
+  height: 7px;
+  background: #e1e5eb;
+}
+
+.progress-track i {
+  background: #0051cc;
+}
+
+.project-meta > small {
+  color: #59677b;
+  font-size: 12px;
+}
+
+.status {
+  padding: 6px 9px;
+  font-size: 12px;
+  line-height: 1.35;
+  font-weight: 700;
+}
+
+.table-toolbar {
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.search-box {
+  min-height: 44px;
+  max-width: 440px;
+  background: #fffefa;
+  border-color: #cfd5de;
+  color: #536176;
+}
+
+.search-box input {
+  height: 42px;
+}
+
+.table-toolbar select,
+.field select,
+.field input,
+.field textarea,
+.login-card input,
+.file-controls select,
+.upload-form select {
+  background: #fffefa;
+  color: #263244;
+  border-color: #cbd2dc;
+  font-size: 14px;
+  min-height: 42px;
+}
+
+.table-toolbar select {
+  height: 44px;
+  padding: 9px 12px;
+}
+
+.result-count {
+  color: #526176;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+table {
+  white-space: nowrap;
+}
+
+th {
+  background: #eeefec;
+  color: #435168;
+  font-size: 12px;
+  letter-spacing: 0.55px;
+  font-weight: 750;
+  padding: 14px 13px;
+}
+
+td {
+  padding: 16px 13px;
+  border-bottom-color: #e8e9e5;
+  color: #435168;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+td b {
+  color: #172033;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.cell-sub {
+  color: #59677b;
+  font-size: 12px;
+  margin-top: 5px;
+}
+
+.date-cell {
+  color: #435168;
+  font-size: 13px;
+  gap: 7px;
+}
+
+.empty-state {
+  min-height: 180px;
+  color: #59677b;
+  font-size: 14px;
+}
+
+.empty-state b {
+  color: #263244;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.empty-state span {
+  font-size: 13px;
+}
+
+.error-banner,
+.error,
+.success-banner {
+  padding: 13px 15px;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.modal-card {
+  border: 1px solid #dedfdc;
+}
+
+.modal-heading h2 {
+  color: #172033;
+  font-size: 23px;
+  font-weight: 750;
+  line-height: 1.3;
+}
+
+.field {
+  color: #344258;
+  font-size: 14px;
+  font-weight: 600;
+  gap: 8px;
+}
+
+.field input,
+.field select,
+.field textarea {
+  font-weight: 400;
+}
+
+.app-footer {
+  background: #f8f7f3;
+  border-top-color: #dedfdc;
+  color: #59677b;
+  font-size: 12px;
+  padding: 17px 30px;
+}
+
+.settings-row {
+  color: #59677b;
+  font-size: 13px;
+}
+
+.settings-row b {
+  color: #263244;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.theme-option b {
+  color: #263244;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.theme-option small {
+  font-size: 12px;
+  color: #59677b;
+}
+
+.role-pill {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.notice {
+  color: #435168;
+  font-size: 13px;
+  line-height: 1.75;
+}
+
+.login-copy p {
+  color: #526176;
+  font-size: 15px;
+}
+
+.login-card h2 {
+  color: #172033;
+  font-size: 27px;
+  font-weight: 750;
+}
+
+.login-card label {
+  color: #344258;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.login-note {
+  color: #59677b;
+  font-size: 12px;
+}
+
+.filter-card {
+  color: #435168;
+  font-size: 13px;
+}
+
+.filter-card b {
+  color: #172033;
+  font-size: 22px;
+  font-weight: 750;
+}
+
+.mini-stat-row {
+  color: #59677b;
+  font-size: 13px;
+}
+
+.mini-stat-row b {
+  color: #263244;
+}
+
+.privacy-note {
+  color: #526176;
+  font-size: 13px;
+}
+
+.file-toolbar h2 {
+  color: #172033;
+  font-size: 18px;
+  font-weight: 750;
+}
+
+.file-toolbar p {
+  color: #59677b;
+  font-size: 13px;
+}
+
+.file-controls select,
+.upload-form select {
+  font-size: 13px;
+}
+
+.file-name b {
+  color: #263244;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.file-name small {
+  color: #59677b;
+  font-size: 12px;
+}
+
+.assignment-meta {
+  background: #f0f0ec;
+  color: #526176;
+  font-size: 13px;
+}
+
+.assignment-meta b {
+  color: #263244;
+}
+
+.member-option b {
+  color: #263244;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.member-option small {
+  color: #59677b;
+  font-size: 12px;
+}
+
+.workload-name b {
+  color: #263244;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.workload-name small {
+  color: #59677b;
+  font-size: 12px;
+}
+
+.workload-count b {
+  color: #172033;
+  font-size: 19px;
+  font-weight: 750;
+}
+
+.workload-count small {
+  color: #59677b;
+  font-size: 12px;
+}
+
+.notification-copy b {
+  color: #263244;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.notification-copy p {
+  color: #435168;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.notification-copy small {
+  color: #59677b;
+  font-size: 12px;
+}
+
+.toast {
+  font-size: 14px;
+}
+
+/* Keep dark mode dark and readable when the .dark class is active */
+.dark,
+.dark body,
+.dark .app-shell,
+.dark .main-shell {
+  background: #111827;
+  color: #e7edf6;
+}
+
+.dark .sidebar,
+.dark .topbar,
+.dark .surface,
+.dark .metric-card,
+.dark .modal-card,
+.dark .login-form-wrap,
+.dark .toast {
+  background: #192335;
+  border-color: #354258;
+  color: #dbe4f0;
+}
+
+.dark .page-title h1,
+.dark .section-head h2,
+.dark .settings-card h2,
+.dark .metric-card > strong,
+.dark td b,
+.dark .breadcrumb strong,
+.dark .project-info b,
+.dark .task-info b,
+.dark .settings-row b,
+.dark .file-name b,
+.dark .workload-name b,
+.dark .notification-copy b,
+.dark .brand b,
+.dark .profile-copy b,
+.dark .modal-heading h2,
+.dark .login-card h2,
+.dark .filter-card b {
+  color: #f1f5f9;
+}
+
+.dark .subtitle,
+.dark .section-head p,
+.dark .metric-top,
+.dark .metric-card > small,
+.dark .project-info small,
+.dark .task-info small,
+.dark .project-meta > small,
+.dark .cell-sub,
+.dark .date-cell,
+.dark .result-count,
+.dark td,
+.dark .settings-row,
+.dark .theme-option small,
+.dark .notice,
+.dark .file-toolbar p,
+.dark .file-name small,
+.dark .member-option small,
+.dark .workload-name small,
+.dark .workload-count small,
+.dark .notification-copy p,
+.dark .notification-copy small,
+.dark .app-footer {
+  color: #b8c4d5;
+}
+
+.dark .search-box,
+.dark .global-search,
+.dark .table-toolbar select,
+.dark .field input,
+.dark .field select,
+.dark .field textarea,
+.dark .login-card input,
+.dark .file-controls select,
+.dark .upload-form select {
+  background: #141e2e;
+  border-color: #43516a;
+  color: #f1f5f9;
+}
+
+.dark th {
+  background: #202d40;
+  color: #d2dceb;
+}
+
+.dark td {
+  border-bottom-color: #2b394d;
+}
+
+.dark .app-footer {
+  background: #111827;
+  border-top-color: #354258;
+}
+
+.dark .assignment-meta,
+.dark .notice {
+  background: #202d40;
+  color: #d2dceb;
+}
+
+.dark .assignment-meta b {
+  color: #f1f5f9;
+}
+
+.dark .theme-option {
+  background: #192335;
+  border-color: #354258;
+  color: #d2dceb;
+}
+
+.dark .theme-option b {
+  color: #f1f5f9;
+}
+
+@media (max-width: 760px) {
+  .page-content {
+    padding: 22px 14px;
+  }
+
+  .page-title h1 {
+    font-size: 28px;
+  }
+
+  .subtitle {
+    font-size: 13px;
+  }
+
+  .surface {
+    padding: 15px;
+  }
+
+  th {
+    font-size: 11px;
+    padding: 12px;
+  }
+
+  td {
+    font-size: 13px;
+    padding: 14px 12px;
+  }
+
+  .app-footer {
+    padding: 14px;
+    font-size: 11px;
+  }
+}
