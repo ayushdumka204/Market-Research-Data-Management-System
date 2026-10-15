@@ -1,0 +1,1 @@
+/** @type {import('tailwindcss').Config} */ export default { content: ['./index.html','./src/**/*.{ts,tsx}'], darkMode: 'class', theme: { extend: { colors: { ink: '#17324f', accent: '#2463eb', mint: '#0f9f79' }, boxShadow: { soft: '0 8px 28px rgba(15, 35, 60, .06)' } } }, plugins: [] };
