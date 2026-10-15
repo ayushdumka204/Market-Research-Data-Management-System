@@ -3,6 +3,5 @@
 **/.env
 **/node_modules/
 **/dist/
-*.tsbuildinfo
 **/vendor/
 *.log

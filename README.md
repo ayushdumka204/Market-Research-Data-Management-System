@@ -1,103 +1,132 @@
 # NexGen Market Research Data Management System
 
-A full-stack internal research management application for NexGen Market Research. Frontend and backend are separate root folders. Backend is **Node.js + Express**, database is **MySQL**.
+A full-stack internal research management application for NexGen Market Research. Frontend and backend are separate root folders. Backend: **Node.js + Express**. Database: **MongoDB Atlas**.
 
 ## Features
 - Admin and team-member accounts with role-based access
-- Dashboard backed by live MySQL statistics
+- Dashboard backed by live MongoDB statistics
 - Create, edit, list and (admin-only) delete research projects
 - Create, edit, list and (admin-only) delete survey responses
 - CSV import (up to 5,000 rows / 5 MB) and Excel export in the UI
 - Reports with project/response summaries
 - Light/dark theme switcher
-- MySQL schema and optional sample records
-- Password hashing with bcrypt, opaque random bearer tokens stored as SHA-256 hashes, prepared SQL statements, CORS allowlist, Helmet security headers and request limits
+- Password hashing with bcrypt, opaque random bearer tokens stored as SHA-256 hashes, Mongoose validation, CORS allowlist, Helmet security headers and request limits
 
 ## Repository layout
 - `frontend/` — React, TypeScript, Vite and Tailwind CSS
-- `backend/` — Node.js 20+, Express REST API, MySQL driver and SQL scripts
+- `backend/` — Node.js 20+, Express REST API, Mongoose models and admin setup script
 
-## 1. Create the MySQL database
-Create a MySQL 8-compatible database and a least-privilege application user at your MySQL provider. Import `backend/database/schema.sql` using the provider's SQL console or a MySQL client. Optionally import `backend/database/seed.sql` to add sample project and response records. Seed data is optional and contains no login credentials.
+## 1. Create MongoDB Atlas database
+1. Open https://cloud.mongodb.com/ and create a project if needed.
+2. Create a free/shared MongoDB cluster if the option is available for your account and region.
+3. Under **Database Access**, create a database user with a strong password.
+4. Under **Network Access**, allow the Render service to connect. For quick local testing, add your current IP. Avoid `0.0.0.0/0` for production unless you understand the security trade-off and use a dedicated least-privilege database user.
+5. Click **Connect → Drivers**, choose Node.js, and copy the connection string.
+6. Replace the username/password placeholders and include a database name, for example `nexgen_research`:
 
-Example database names and user values are placeholders; use the credentials from your chosen MySQL host.
+```text
+mongodb+srv://USERNAME:PASSWORD@YOUR-CLUSTER.mongodb.net/nexgen_research?retryWrites=true&w=majority
+```
+
+If your password contains reserved URL characters, percent-encode them. Never share or commit the connection string.
+
+The application creates its collections and indexes through Mongoose when the API runs. There are no SQL files to execute.
 
 ## 2. Run locally
-Install Node.js 20 or newer and MySQL 8 or a compatible MySQL service.
+Install Node.js 20 or newer.
 
 ### Backend
 ```bash
 cd backend
 cp .env.example .env
-# Edit .env with your MySQL connection details
+```
+Set `MONGODB_URI` in `backend/.env` to your Atlas connection string. Then run:
+
+```bash
 npm install
 npm run dev
 ```
-The API runs on `http://localhost:8080` by default. Health check: `http://localhost:8080/api/health`.
 
-Create the first admin account after configuring `.env`:
+The API runs at `http://localhost:8080` by default. Health check: `http://localhost:8080/api/health`. It should return `{ "status": "ok", "database": "connected" }` after MongoDB connects.
+
+### Create the first admin account
+Run this from the `backend` folder after configuring `.env`:
+
 ```bash
-npm run create-admin -- admin@example.com "Your Name" "A-long-unique-password-12+"
+npm run create-admin
 ```
-The password must be at least 12 characters. Avoid putting real credentials in shell history on shared machines; use a private terminal and never commit `.env`.
+
+Follow the prompts for email, full name and a password of at least 12 characters. The script creates the admin record in MongoDB. If the email already exists, use a different email or manage the existing account; do not create duplicate admins. Avoid putting real credentials in shell history and never commit `.env`.
 
 ### Frontend
-In a second terminal:
+Open a second terminal:
+
 ```bash
 cd frontend
 cp .env.example .env
+```
+Set this in `frontend/.env`:
+
+```text
+VITE_API_BASE_URL=http://localhost:8080/api
+```
+
+Then run:
+
+```bash
 npm install
 npm run dev
 ```
-Set `VITE_API_BASE_URL=http://localhost:8080/api` in `frontend/.env`. Open the Vite URL shown in the terminal (normally `http://localhost:5173`).
+Open the Vite URL shown in the terminal, normally `http://localhost:5173`.
 
-## 3. Deploy on Render
-Render's managed relational database is PostgreSQL, not MySQL. To keep this project on MySQL, use an external MySQL-compatible provider and confirm it allows secure connections from Render. Use TLS/SSL when the provider supports it.
-
-### Deploy backend as a Docker Web Service
-1. Push this repository to GitHub.
-2. In Render, create **New → Web Service**, connect the repository and choose **Docker** as the runtime.
-3. Set the Dockerfile path to `backend/Dockerfile` (root directory can remain the repository root).
-4. Add these environment variables in Render's dashboard:
+## 3. Deploy backend on Render
+1. Push the repository to GitHub. Ensure no `.env` file or secrets are committed.
+2. In Render, select **New → Web Service** and connect the repository.
+3. Choose **Docker** runtime. Use `backend/Dockerfile` as the Dockerfile path and keep the repository root as the Docker context.
+4. Add these environment variables in Render:
    - `NODE_ENV=production`
-   - `DB_HOST` — MySQL hostname
-   - `DB_PORT=3306` (or the provider's port)
-   - `DB_NAME` — database name
-   - `DB_USER` — database user
-   - `DB_PASSWORD` — database password
-   - `DB_SSL=true` if required by your provider and its certificate chain is valid
-   - `CORS_ORIGINS=https://YOUR-FRONTEND-DOMAIN`
+   - `MONGODB_URI` — full MongoDB Atlas connection string
+   - `CORS_ORIGINS` — exact frontend origin, e.g. `https://YOUR-PROJECT.vercel.app` (temporarily use `http://localhost:5173` for local development)
    - `TOKEN_TTL_DAYS=7`
-5. Render supplies `PORT`; the service listens on it. Once deployed, check `https://YOUR-BACKEND.onrender.com/api/health`.
-6. Import `backend/database/schema.sql` into the external MySQL database before testing the API.
+5. In Atlas **Network Access**, configure access for the Render service. Render outbound IP ranges can vary by plan; consult the current Render networking details for your service. Do not assume the local computer IP is sufficient for Render.
+6. Deploy and open `https://YOUR-BACKEND.onrender.com/api/health`. Confirm the response reports `database: connected`.
 
-### Create the first admin account
-Run the CLI script in a controlled environment with the same DB environment variables. You can do this locally with a secure `.env` configured for the production database, or use Render Shell if available for the service:
+`render.yaml` is a starter template; review the service name and frontend origin before using it. The app listens on Render's supplied `PORT`.
+
+## 4. Create admin account for production
+The recommended approach is to run the admin script from a trusted local terminal with the production `MONGODB_URI` set in a private `backend/.env`, or use a secure Render Shell if available. Run:
+
 ```bash
-npm run create-admin -- admin@example.com "Admin Name" "A-long-unique-password-12+"
+npm run create-admin
 ```
-Do not create predictable demo passwords and do not expose the password in screenshots or logs.
+Use a strong unique password. Do not place the password in screenshots, source code, frontend environment variables or logs. Remove the production URI from local files when finished and never commit `.env`.
 
-### Deploy frontend as a Render Static Site
-1. Create **New → Static Site** and connect the same repository.
-2. Set root directory to `frontend`.
-3. Build command: `npm install && npm run build`
-4. Publish directory: `dist`
-5. Set `VITE_API_BASE_URL=https://YOUR-BACKEND.onrender.com/api` as a build-time environment variable.
-6. Set the backend `CORS_ORIGINS` to the exact deployed frontend origin, then redeploy the backend if changed.
+## 5. Deploy frontend on Vercel
+1. Import the same GitHub repository into Vercel.
+2. Set **Root Directory** to `frontend`.
+3. Framework preset: **Vite**.
+4. Build command: `npm run build` (Vercel will install dependencies; if not, use `npm install && npm run build`).
+5. Output directory: `dist`.
+6. Add the build-time environment variable:
 
-Use HTTPS for both services. Never put backend secrets in `frontend/.env` or any `VITE_` variable. `VITE_` values are public in the browser bundle.
+```text
+VITE_API_BASE_URL=https://YOUR-BACKEND.onrender.com/api
+```
+
+7. Deploy. Copy the exact Vercel origin and set it as `CORS_ORIGINS` on Render. Redeploy the backend after changing CORS.
+
+Never put `MONGODB_URI`, passwords or other backend secrets in `VITE_` variables; frontend variables are public in the browser bundle.
 
 ## Roles
 - **Admin:** dashboard, project/response operations, user management and destructive deletes.
 - **Team:** view dashboard, create/edit projects and responses, import/export records and view reports; cannot delete projects/responses or manage accounts.
 
 ## CSV import format
-Required headers: `project_id,respondent_code,response_date`. Optional headers: `channel,answers,notes`. `project_id` must reference an existing project. `response_date` uses `YYYY-MM-DD`. `answers` should be a JSON object string, for example `"{\"satisfaction\":5}"`. Duplicate respondent codes within the same project are skipped and returned as row errors.
+Required headers: `project_id,respondent_code,response_date`. Optional headers: `channel,answers,notes`. `project_id` must be the MongoDB ObjectId of an existing project (copy it from the exported project ID column or database records). `response_date` uses `YYYY-MM-DD`. `answers` should be a JSON object string, for example `"{\"satisfaction\":5}"`. Duplicate respondent codes within the same project are skipped and returned as row errors.
 
 ## Before using real research data
-- Configure database TLS and least-privilege credentials.
-- Use a long unique database password and restrict database network access where possible.
+- Use a strong, unique Atlas database password and restrict network access where possible.
+- Enable/confirm TLS; MongoDB Atlas uses TLS for its standard SRV connection string.
 - Back up the database and test restore procedures.
 - Verify CORS uses only the exact frontend origin.
 - Test role permissions, login/logout, CRUD, import edge cases and deployment health with non-sensitive sample data.

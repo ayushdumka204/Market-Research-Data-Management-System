@@ -8,28 +8,9 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
-      - key: DB_HOST
+      - key: MONGODB_URI
         sync: false
-      - key: DB_PORT
-        value: "3306"
-      - key: DB_NAME
-        sync: false
-      - key: DB_USER
-        sync: false
-      - key: DB_PASSWORD
-        sync: false
-      - key: DB_SSL
-        value: "true"
       - key: CORS_ORIGINS
-        value: https://nexgen-research-frontend.onrender.com
+        sync: false
       - key: TOKEN_TTL_DAYS
         value: "7"
-  - type: web
-    name: nexgen-research-frontend
-    runtime: static
-    rootDir: frontend
-    buildCommand: npm install && npm run build
-    staticPublishPath: dist
-    envVars:
-      - key: VITE_API_BASE_URL
-        value: https://nexgen-research-api.onrender.com/api

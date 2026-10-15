@@ -1,11 +1,11 @@
 export type User = {
-  id: number;
+  id: string;
   name: string;
   email: string;
   role: "admin" | "team";
 };
 export type Project = {
-  id: number;
+  id: string;
   name: string;
   client: string;
   industry: string;
@@ -17,8 +17,8 @@ export type Project = {
   response_count?: number;
 };
 export type ResponseRecord = {
-  id: number;
-  project_id: number;
+  id: string;
+  project_id: string;
   project_name?: string;
   respondent_code: string;
   response_date: string;

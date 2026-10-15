@@ -92,7 +92,7 @@ export default function SurveyData({ user }: { user: User }) {
       return;
     }
     try {
-      const body = { ...draft, project_id: Number(draft.project_id), answers };
+      const body = { ...draft, project_id: draft.project_id, answers };
       if (editing)
         await api(`/responses/${editing.id}`, {
           method: "PUT",

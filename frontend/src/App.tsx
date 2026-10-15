@@ -33,9 +33,10 @@ import DataRecords from "./pages/DataRecords";
 import Reports from "./pages/Reports";
 import Settings from "./pages/Settings";
 import Login from "./pages/Login";
-type NavItem = readonly [string, string, LucideIcon];
+type NavItem = readonly [label: string, path: string, icon: LucideIcon];
+type NavGroup = { label: string; items: readonly NavItem[] };
 
-const nav: readonly { label: string; items: readonly NavItem[] }[] = [
+const nav: readonly NavGroup[] = [
   {
     label: "Overview",
     items: [

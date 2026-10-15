@@ -179,7 +179,7 @@ export default function DataRecords({ user }: { user: User }) {
           onClick={() => {
             const blob = new Blob(
               [
-                'project_id,respondent_code,response_date,channel,answers,notes\n1,RESP-001,2026-10-15,Online survey,"{\"satisfaction\":5}",Sample note\n',
+                'project_id (MongoDB ObjectId), respondent_code, response_date,channel,answers,notes\n1,RESP-001,2026-10-15,Online survey,"{\"satisfaction\":5}",Sample note\n',
               ],
               { type: "text/csv" },
             );
