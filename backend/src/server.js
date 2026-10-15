@@ -10,7 +10,7 @@ import { parse } from "csv-parse/sync";
 
 const app = express();
 const port = Number(process.env.PORT || 8080);
-const allowedOrigins = (process.env.CORS_ORIGINS || "http://localhost:5173")
+const allowedOrigins = (process.env.CORS_ORIGINS || "https://market-research-data-management-sys.vercel.app")
   .split(",")
   .map((origin) => origin.trim())
   .filter(Boolean);
