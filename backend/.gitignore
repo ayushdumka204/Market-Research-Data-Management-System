@@ -1,3 +1,5 @@
-node_modules/
+node_modules
 .env
-npm-debug.log*
+.env.*
+!.env.example
+uploads/

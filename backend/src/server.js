@@ -2,742 +2,1100 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
-import crypto from "node:crypto";
+import jwt from "jsonwebtoken";
 import multer from "multer";
-import { parse } from "csv-parse/sync";
-
-const app = express();
-const port = Number(process.env.PORT || 8080);
-const allowedOrigins = (process.env.CORS_ORIGINS || "https://market-research-data-management-sys.vercel.app")
+import path from "node:path";
+import fs from "node:fs";
+import crypto from "node:crypto";
+import { fileURLToPath } from "node:url";
+import {
+  User,
+  Project,
+  Task,
+  Survey,
+  DataRecord,
+  FileRecord,
+  Notification,
+  AuditLog,
+} from "./models.js";
+const app = express(),
+  PORT = Number(process.env.PORT || 5000),
+  JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET || JWT_SECRET.length < 32) {
+  console.error(
+    "JWT_SECRET must be set to a random value of at least 32 characters.",
+  );
+  process.exit(1);
+}
+const origins = (process.env.CORS_ORIGINS || "http://localhost:5173")
   .split(",")
-  .map((origin) => origin.trim())
+  .map((x) => x.trim())
   .filter(Boolean);
-
-const userSchema = new mongoose.Schema(
-  {
-    name: { type: String, required: true, trim: true, maxlength: 120 },
-    email: {
-      type: String,
-      required: true,
-      unique: true,
-      lowercase: true,
-      trim: true,
-    },
-    password_hash: { type: String, required: true },
-    role: { type: String, enum: ["admin", "team"], default: "team" },
-  },
-  { timestamps: { createdAt: "created_at", updatedAt: "updated_at" } },
-);
-
-const tokenSchema = new mongoose.Schema(
-  {
-    user_id: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-      index: true,
-    },
-    token_hash: { type: String, required: true, unique: true },
-    expires_at: { type: Date, required: true, expires: 0 },
-  },
-  { timestamps: true },
-);
-
-const projectSchema = new mongoose.Schema(
-  {
-    name: { type: String, required: true, trim: true, maxlength: 180 },
-    client: { type: String, default: "" },
-    industry: { type: String, default: "" },
-    description: { type: String, default: "", maxlength: 10000 },
-    start_date: { type: String, default: null },
-    end_date: { type: String, default: null },
-    status: {
-      type: String,
-      enum: ["planning", "active", "on_hold", "completed"],
-      default: "planning",
-    },
-    created_by: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "User",
-      required: true,
-    },
-  },
-  { timestamps: { createdAt: "created_at", updatedAt: "updated_at" } },
-);
-
-const responseSchema = new mongoose.Schema(
-  {
-    project_id: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Project",
-      required: true,
-      index: true,
-    },
-    respondent_code: {
-      type: String,
-      required: true,
-      trim: true,
-      maxlength: 100,
-    },
-    response_date: { type: String, required: true },
-    channel: { type: String, default: "Other", maxlength: 100 },
-    answers: { type: mongoose.Schema.Types.Mixed, default: {} },
-    notes: { type: String, default: "", maxlength: 10000 },
-  },
-  { timestamps: { createdAt: "created_at", updatedAt: "updated_at" } },
-);
-responseSchema.index({ project_id: 1, respondent_code: 1 }, { unique: true });
-
-const User = mongoose.model("User", userSchema);
-const ApiToken = mongoose.model("ApiToken", tokenSchema);
-const Project = mongoose.model("Project", projectSchema);
-const Response = mongoose.model("Response", responseSchema);
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024, files: 1 },
-});
-app.disable("x-powered-by");
 app.use(helmet({ crossOriginResourcePolicy: { policy: "cross-origin" } }));
 app.use(
   cors({
-    origin(origin, callback) {
-      if (!origin || allowedOrigins.includes(origin))
-        return callback(null, true);
-      return callback(new Error("Origin is not allowed by CORS."));
+    origin(origin, cb) {
+      if (!origin || origins.includes(origin)) return cb(null, true);
+      return cb(new Error("Origin not allowed by CORS"));
     },
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
+    credentials: false,
   }),
 );
-app.use(express.json({ limit: "1mb" }));
-app.use((req, res, next) => {
-  res.setHeader("Cache-Control", "no-store");
+app.use(express.json({ limit: "2mb" }));
+app.use(
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 600,
+    standardHeaders: true,
+    legacyHeaders: false,
+  }),
+);
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const uploadDir = path.resolve(
+  process.env.UPLOAD_DIR || path.join(__dirname, "../uploads"),
+);
+fs.mkdirSync(uploadDir, { recursive: true });
+const maxSize = (Number(process.env.MAX_FILE_SIZE_MB) || 25) * 1024 * 1024;
+const storage = multer.diskStorage({
+  destination: (_, __, cb) => cb(null, uploadDir),
+  filename: (_, file, cb) =>
+    cb(
+      null,
+      crypto.randomUUID() + path.extname(file.originalname).toLowerCase(),
+    ),
+});
+const upload = multer({
+  storage,
+  limits: { fileSize: maxSize },
+  fileFilter: (_, file, cb) => {
+    const allowed =
+      /\.(csv|tsv|xlsx|xls|pdf|doc|docx|txt|png|jpg|jpeg|zip)$/i.test(
+        file.originalname,
+      );
+    cb(allowed ? null : new Error("File type not permitted."), allowed);
+  },
+});
+const id = (v) => mongoose.isValidObjectId(v);
+const safeUser = (u) => ({
+  id: String(u._id),
+  name: u.name,
+  email: u.email,
+  role: u.role,
+  active: u.active,
+});
+const asyncRoute = (fn) => (req, res, next) =>
+  Promise.resolve(fn(req, res, next)).catch(next);
+async function notify(userIds, title, message, type = "info", link = "") {
+  const unique = [...new Set(userIds.filter(Boolean).map(String))];
+  if (unique.length)
+    await Notification.insertMany(
+      unique.map((user_id) => ({ user_id, title, message, type, link })),
+    );
+}
+async function audit(
+  req,
+  action,
+  entity_type = "",
+  entity_id = "",
+  project_id = null,
+  details = {},
+) {
+  await AuditLog.create({
+    actor_id: req.user._id,
+    action,
+    entity_type,
+    entity_id: String(entity_id || ""),
+    project_id,
+    details,
+  });
+}
+function auth(req, res, next) {
+  const h = req.headers.authorization || "";
+  const token = h.startsWith("Bearer ") ? h.slice(7) : "";
+  if (!token) return res.status(401).json({ message: "Please sign in." });
+  try {
+    const p = jwt.verify(token, JWT_SECRET);
+    req.userId = p.sub;
+    next();
+  } catch {
+    return res
+      .status(401)
+      .json({ message: "Session expired. Please sign in again." });
+  }
+}
+const attachUser = asyncRoute(async (req, res, next) => {
+  const user = await User.findById(req.userId);
+  if (!user || !user.active)
+    return res.status(401).json({ message: "Account is unavailable." });
+  req.user = user;
   next();
 });
-
-const asyncRoute = (handler) => (req, res, next) =>
-  Promise.resolve(handler(req, res, next)).catch(next);
-const cleanString = (value, max = 255) =>
-  String(value ?? "")
-    .trim()
-    .slice(0, max);
-const isDate = (value) =>
-  typeof value === "string" &&
-  /^\d{4}-\d{2}-\d{2}$/.test(value) &&
-  !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
-const hashToken = (token) =>
-  crypto.createHash("sha256").update(token).digest("hex");
-const publicUser = (user) => ({
-  id: String(user._id),
-  name: user.name,
-  email: user.email,
-  role: user.role,
-});
-
-function publicProject(project, responseCount = 0) {
-  return {
-    id: String(project._id),
-    name: project.name,
-    client: project.client || "",
-    industry: project.industry || "",
-    description: project.description || "",
-    start_date: project.start_date || null,
-    end_date: project.end_date || null,
-    status: project.status,
-    created_at: project.created_at,
-    updated_at: project.updated_at,
-    response_count: responseCount,
-  };
-}
-
-function publicResponse(response, projectName = "") {
-  return {
-    id: String(response._id),
-    project_id: String(response.project_id),
-    project_name: projectName,
-    respondent_code: response.respondent_code,
-    response_date: response.response_date,
-    channel: response.channel || "Other",
-    answers: response.answers || {},
-    notes: response.notes || "",
-    created_at: response.created_at,
-  };
-}
-
-async function auth(req, res, next) {
-  try {
-    const token = (req.headers.authorization || "").match(
-      /^Bearer\s+(.+)$/i,
-    )?.[1];
-    if (!token)
-      return res.status(401).json({ error: "Please sign in to continue." });
-
-    const storedToken = await ApiToken.findOne({
-      token_hash: hashToken(token),
-      expires_at: { $gt: new Date() },
-    });
-    if (!storedToken)
-      return res
-        .status(401)
-        .json({ error: "Your session has expired. Please sign in again." });
-
-    const user = await User.findById(storedToken.user_id);
-    if (!user)
-      return res
-        .status(401)
-        .json({ error: "This account is no longer available." });
-    req.user = publicUser(user);
-    next();
-  } catch (error) {
-    next(error);
-  }
-}
-
-const adminOnly = (req, res, next) =>
-  req.user?.role === "admin"
-    ? next()
-    : res
-        .status(403)
-        .json({
-          error: "Administrator permission is required for this action.",
-        });
-
-async function getProjectsWithCounts(filter = {}) {
-  const projects = await Project.find(filter).sort({ updated_at: -1 }).lean();
-  const counts = await Response.aggregate([
-    { $group: { _id: "$project_id", count: { $sum: 1 } } },
-  ]);
-  const countMap = new Map(
-    counts.map((item) => [String(item._id), item.count]),
-  );
-  return projects.map((project) =>
-    publicProject(project, countMap.get(String(project._id)) || 0),
-  );
-}
-
-async function getResponses(filter = {}) {
-  const responses = await Response.find(filter)
-    .sort({ response_date: -1, created_at: -1 })
-    .lean();
-  const projectIds = [
-    ...new Set(responses.map((item) => String(item.project_id))),
-  ];
-  const projects = await Project.find({ _id: { $in: projectIds } })
-    .select("name")
-    .lean();
-  const names = new Map(
-    projects.map((project) => [String(project._id), project.name]),
-  );
-  return responses.map((response) =>
-    publicResponse(response, names.get(String(response.project_id)) || ""),
-  );
-}
-
-function validateResponse(body) {
-  if (!mongoose.isValidObjectId(body.project_id))
-    return "Choose a valid project.";
-  if (!cleanString(body.respondent_code, 100))
-    return "Respondent code is required.";
-  if (!isDate(body.response_date))
-    return "Response date must use YYYY-MM-DD format.";
-  let answers = body.answers ?? {};
-  if (typeof answers === "string") {
-    try {
-      answers = JSON.parse(answers);
-    } catch {
-      return "Answers must be valid JSON.";
-    }
-  }
-  if (!answers || typeof answers !== "object" || Array.isArray(answers))
-    return "Answers must be a JSON object.";
+const protect = [auth, attachUser];
+const roles =
+  (...allowed) =>
+  (req, res, next) =>
+    allowed.includes(req.user.role)
+      ? next()
+      : res
+          .status(403)
+          .json({
+            message: "You do not have permission to perform this action.",
+          });
+async function visibleProject(user, projectId) {
+  if (!id(projectId)) return null;
+  const p = await Project.findById(projectId);
+  if (!p) return null;
+  if (user.role === "admin") return p;
+  if (user.role === "leader" && String(p.leader_id) === String(user._id))
+    return p;
+  if (
+    user.role === "team" &&
+    p.team.some((x) => String(x) === String(user._id))
+  )
+    return p;
   return null;
 }
-
-app.get(
-  "/api/health",
-  asyncRoute(async (_req, res) => {
-    if (mongoose.connection.readyState !== 1) {
-      return res
-        .status(503)
-        .json({ status: "error", database: "disconnected" });
-    }
-    await mongoose.connection.db.admin().ping();
-    res.json({ status: "ok", database: "connected" });
+function projectFilter(user) {
+  if (user.role === "admin") return { archived: false };
+  if (user.role === "leader") return { leader_id: user._id, archived: false };
+  return { team: user._id, archived: false };
+}
+async function recordAudit(req, action, type, doc, projectId = null) {
+  return audit(req, action, type, doc ? doc._id : "", projectId, {});
+}
+app.get("/api/health", (req, res) =>
+  res.json({
+    ok: true,
+    service: "nexgen-research-api",
+    database:
+      mongoose.connection.readyState === 1 ? "connected" : "disconnected",
   }),
 );
-app.get("/api", (_req, res) =>
-  res.json({ name: "NexGen Research API", version: "1.0.0" }),
-);
-
 app.post(
   "/api/auth/login",
   asyncRoute(async (req, res) => {
-    const email = cleanString(req.body?.email, 190).toLowerCase();
-    const password = String(req.body?.password || "");
+    const email = String(req.body.email || "")
+        .trim()
+        .toLowerCase(),
+      password = String(req.body.password || "");
     if (!email || !password)
       return res
         .status(400)
-        .json({ error: "Email and password are required." });
-
+        .json({ message: "Email and password are required." });
     const user = await User.findOne({ email });
-    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
-      return res.status(401).json({ error: "Email or password is incorrect." });
-    }
-
-    const token = crypto.randomBytes(32).toString("base64url");
-    const days = Math.min(
-      30,
-      Math.max(1, Number(process.env.TOKEN_TTL_DAYS || 7)),
+    if (
+      !user ||
+      !user.active ||
+      !(await bcrypt.compare(password, user.password_hash))
+    )
+      return res.status(401).json({ message: "Invalid email or password." });
+    const token = jwt.sign(
+      { sub: String(user._id), role: user.role },
+      JWT_SECRET,
+      { expiresIn: "12h" },
     );
-    await ApiToken.create({
-      user_id: user._id,
-      token_hash: hashToken(token),
-      expires_at: new Date(Date.now() + days * 24 * 60 * 60 * 1000),
-    });
-    res.json({ token, user: publicUser(user) });
+    res.json({ token, user: safeUser(user) });
   }),
 );
-
-app.get("/api/auth/me", auth, (req, res) => res.json({ user: req.user }));
+app.get(
+  "/api/auth/me",
+  ...protect,
+  asyncRoute(async (req, res) => res.json({ user: safeUser(req.user) })),
+);
 app.post(
   "/api/auth/logout",
-  auth,
-  asyncRoute(async (req, res) => {
-    const token = req.headers.authorization.slice(7);
-    await ApiToken.deleteOne({ token_hash: hashToken(token) });
-    res.json({ ok: true });
-  }),
+  ...protect,
+  asyncRoute(async (req, res) => res.json({ ok: true })),
 );
-
 app.get(
   "/api/dashboard",
-  auth,
-  asyncRoute(async (_req, res) => {
-    const [
-      totalProjects,
-      activeProjects,
-      totalResponses,
-      completedProjects,
-      recentProjects,
-      recentResponses,
-    ] = await Promise.all([
-      Project.countDocuments(),
-      Project.countDocuments({ status: "active" }),
-      Response.countDocuments(),
-      Project.countDocuments({ status: "completed" }),
-      getProjectsWithCounts().then((items) => items.slice(0, 5)),
-      getResponses().then((items) => items.slice(0, 5)),
+  ...protect,
+  asyncRoute(async (req, res) => {
+    const filter = projectFilter(req.user);
+    const projects = await Project.find(filter).select(
+      "_id sample_target sample_completed status",
+    );
+    const projectIds = projects.map((p) => p._id);
+    const taskFilter =
+      req.user.role === "admin" ? {} : { project_id: { $in: projectIds } };
+    const [active, awaiting, approved, surveys, records] = await Promise.all([
+      Project.countDocuments({ ...filter, status: "ongoing" }),
+      Task.countDocuments({
+        ...taskFilter,
+        status: { $in: ["submitted", "in_review"] },
+      }),
+      Task.countDocuments({ ...taskFilter, status: "approved" }),
+      Survey.countDocuments({ project_id: { $in: projectIds } }),
+      DataRecord.countDocuments({ project_id: { $in: projectIds } }),
     ]);
     res.json({
-      total_projects: totalProjects,
-      active_projects: activeProjects,
-      total_responses: totalResponses,
-      completed_projects: completedProjects,
-      recent_projects: recentProjects,
-      recent_responses: recentResponses,
+      active_projects: active,
+      awaiting_review: awaiting,
+      approved_tasks: approved,
+      surveys,
+      records,
+      project_count: projects.length,
     });
   }),
 );
-
 app.get(
-  "/api/projects",
-  auth,
-  asyncRoute(async (_req, res) => {
-    res.json(await getProjectsWithCounts());
+  "/api/users",
+  ...protect,
+  roles("admin", "leader"),
+  asyncRoute(async (req, res) => {
+    const filter = { active: true };
+    if (req.query.role) filter.role = req.query.role;
+    if (req.user.role === "leader") filter.role = "team";
+    const users = await User.find(filter).sort({ name: 1 });
+    res.json(users.map((u) => ({ ...safeUser(u), active: u.active })));
   }),
 );
 app.post(
-  "/api/projects",
-  auth,
+  "/api/users",
+  ...protect,
+  roles("admin"),
   asyncRoute(async (req, res) => {
-    const body = req.body || {};
-    const name = cleanString(body.name, 180);
-    if (!name)
-      return res.status(400).json({ error: "Project name is required." });
-    const status = ["planning", "active", "on_hold", "completed"].includes(
-      body.status,
-    )
-      ? body.status
-      : "planning";
-    const startDate = body.start_date || null;
-    const endDate = body.end_date || null;
-    if ((startDate && !isDate(startDate)) || (endDate && !isDate(endDate))) {
-      return res
-        .status(400)
-        .json({ error: "Dates must use YYYY-MM-DD format." });
-    }
-    const project = await Project.create({
-      name,
-      client: cleanString(body.client, 180),
-      industry: cleanString(body.industry, 120),
-      description: cleanString(body.description, 10000),
-      start_date: startDate,
-      end_date: endDate,
-      status,
-      created_by: req.user.id,
-    });
-    res.status(201).json(publicProject(project, 0));
-  }),
-);
-app.put(
-  "/api/projects/:id",
-  auth,
-  asyncRoute(async (req, res) => {
-    if (!mongoose.isValidObjectId(req.params.id))
-      return res.status(404).json({ error: "Project not found." });
-    const body = req.body || {};
-    const name = cleanString(body.name, 180);
-    if (!name)
-      return res.status(400).json({ error: "Project name is required." });
-    const status = ["planning", "active", "on_hold", "completed"].includes(
-      body.status,
-    )
-      ? body.status
-      : "planning";
-    const startDate = body.start_date || null;
-    const endDate = body.end_date || null;
-    if ((startDate && !isDate(startDate)) || (endDate && !isDate(endDate))) {
-      return res
-        .status(400)
-        .json({ error: "Dates must use YYYY-MM-DD format." });
-    }
-    const project = await Project.findByIdAndUpdate(
-      req.params.id,
-      {
-        name,
-        client: cleanString(body.client, 180),
-        industry: cleanString(body.industry, 120),
-        description: cleanString(body.description, 10000),
-        start_date: startDate,
-        end_date: endDate,
-        status,
-      },
-      { new: true, runValidators: true },
-    );
-    if (!project) return res.status(404).json({ error: "Project not found." });
-    const count = await Response.countDocuments({ project_id: project._id });
-    res.json(publicProject(project, count));
-  }),
-);
-app.delete(
-  "/api/projects/:id",
-  auth,
-  adminOnly,
-  asyncRoute(async (req, res) => {
-    if (!mongoose.isValidObjectId(req.params.id))
-      return res.status(404).json({ error: "Project not found." });
-    const project = await Project.findByIdAndDelete(req.params.id);
-    if (!project) return res.status(404).json({ error: "Project not found." });
-    await Response.deleteMany({ project_id: project._id });
-    res.json({ ok: true });
-  }),
-);
-
-app.get(
-  "/api/responses",
-  auth,
-  asyncRoute(async (_req, res) => res.json(await getResponses())),
-);
-app.post(
-  "/api/responses",
-  auth,
-  asyncRoute(async (req, res) => {
-    const body = req.body || {};
-    const error = validateResponse(body);
-    if (error) return res.status(400).json({ error });
-    if (!(await Project.exists({ _id: body.project_id })))
-      return res
-        .status(400)
-        .json({ error: "The selected project does not exist." });
-    try {
-      const response = await Response.create({
-        project_id: body.project_id,
-        respondent_code: cleanString(body.respondent_code, 100),
-        response_date: body.response_date,
-        channel: cleanString(body.channel, 100) || "Other",
-        answers:
-          typeof body.answers === "string"
-            ? JSON.parse(body.answers || "{}")
-            : (body.answers ?? {}),
-        notes: cleanString(body.notes, 10000),
-      });
-      res
-        .status(201)
-        .json(
-          publicResponse(
-            response,
-            (await Project.findById(body.project_id).select("name").lean())
-              ?.name || "",
-          ),
-        );
-    } catch (error) {
-      if (error.code === 11000)
-        return res
-          .status(409)
-          .json({
-            error: "That respondent code already exists for this project.",
-          });
-      throw error;
-    }
-  }),
-);
-app.put(
-  "/api/responses/:id",
-  auth,
-  asyncRoute(async (req, res) => {
-    if (!mongoose.isValidObjectId(req.params.id))
-      return res.status(404).json({ error: "Response not found." });
-    const body = req.body || {};
-    const error = validateResponse(body);
-    if (error) return res.status(400).json({ error });
-    if (!(await Project.exists({ _id: body.project_id })))
-      return res
-        .status(400)
-        .json({ error: "The selected project does not exist." });
-    try {
-      const response = await Response.findByIdAndUpdate(
-        req.params.id,
-        {
-          project_id: body.project_id,
-          respondent_code: cleanString(body.respondent_code, 100),
-          response_date: body.response_date,
-          channel: cleanString(body.channel, 100) || "Other",
-          answers:
-            typeof body.answers === "string"
-              ? JSON.parse(body.answers || "{}")
-              : (body.answers ?? {}),
-          notes: cleanString(body.notes, 10000),
-        },
-        { new: true, runValidators: true },
-      );
-      if (!response)
-        return res.status(404).json({ error: "Response not found." });
-      const project = await Project.findById(response.project_id)
-        .select("name")
-        .lean();
-      res.json(publicResponse(response, project?.name || ""));
-    } catch (error) {
-      if (error.code === 11000)
-        return res
-          .status(409)
-          .json({
-            error: "That respondent code already exists for this project.",
-          });
-      throw error;
-    }
-  }),
-);
-app.delete(
-  "/api/responses/:id",
-  auth,
-  adminOnly,
-  asyncRoute(async (req, res) => {
-    if (!mongoose.isValidObjectId(req.params.id))
-      return res.status(404).json({ error: "Response not found." });
-    const response = await Response.findByIdAndDelete(req.params.id);
-    if (!response)
-      return res.status(404).json({ error: "Response not found." });
-    res.json({ ok: true });
-  }),
-);
-
-app.post(
-  "/api/responses/import",
-  auth,
-  upload.single("file"),
-  asyncRoute(async (req, res) => {
-    if (!req.file)
-      return res.status(400).json({ error: "Choose a CSV file to import." });
-    const text = req.file.buffer.toString("utf8").replace(/^\uFEFF/, "");
-    let records;
-    try {
-      records = parse(text, {
-        columns: (headers) =>
-          headers.map((header) => header.trim().toLowerCase()),
-        skip_empty_lines: true,
-        trim: true,
-        relax_column_count: true,
-        max_record_size: 100000,
-      });
-    } catch {
+    const { name, email, password, role = "team" } = req.body;
+    if (!name || !email || !password || password.length < 8)
       return res
         .status(400)
         .json({
-          error: "Could not read CSV. Check its header row and quoting.",
+          message:
+            "Name, email and password (minimum 8 characters) are required.",
         });
-    }
-    if (records.length > 5000)
+    if (!["admin", "leader", "team"].includes(role))
+      return res.status(400).json({ message: "Invalid role." });
+    if (await User.exists({ email: String(email).toLowerCase() }))
       return res
-        .status(400)
-        .json({ error: "Import is limited to 5,000 rows per file." });
-    const errors = [];
-    let imported = 0;
-    for (let index = 0; index < records.length; index += 1) {
-      const body = records[index];
-      const issue = validateResponse(body);
-      if (issue) {
-        errors.push(`Row ${index + 2}: ${issue}`);
-        continue;
-      }
-      if (!(await Project.exists({ _id: body.project_id }))) {
-        errors.push(`Row ${index + 2}: project_id does not exist.`);
-        continue;
-      }
-      let answers;
-      try {
-        answers =
-          typeof body.answers === "string"
-            ? JSON.parse(body.answers || "{}")
-            : (body.answers ?? {});
-        if (!answers || typeof answers !== "object" || Array.isArray(answers))
-          throw new Error("Invalid answers");
-      } catch {
-        errors.push(`Row ${index + 2}: answers must contain a JSON object.`);
-        continue;
-      }
-      try {
-        await Response.create({
-          project_id: body.project_id,
-          respondent_code: cleanString(body.respondent_code, 100),
-          response_date: body.response_date,
-          channel: cleanString(body.channel, 100) || "Other",
-          answers,
-          notes: cleanString(body.notes, 10000),
-        });
-        imported += 1;
-      } catch (error) {
-        if (error.code === 11000)
-          errors.push(
-            `Row ${index + 2}: respondent code already exists for this project.`,
-          );
-        else throw error;
-      }
-    }
-    res.json({ imported, errors: errors.slice(0, 100) });
+        .status(409)
+        .json({ message: "An account with this email already exists." });
+    const u = await User.create({
+      name,
+      email,
+      password_hash: await bcrypt.hash(password, 12),
+      role,
+    });
+    await audit(req, "user.created", "User", u._id);
+    res.status(201).json(safeUser(u));
   }),
 );
-
+app.patch(
+  "/api/users/:id",
+  ...protect,
+  roles("admin"),
+  asyncRoute(async (req, res) => {
+    if (!id(req.params.id))
+      return res.status(400).json({ message: "Invalid user ID." });
+    const u = await User.findById(req.params.id);
+    if (!u) return res.status(404).json({ message: "User not found." });
+    if (u._id.equals(req.user._id) && req.body.active === false)
+      return res
+        .status(400)
+        .json({ message: "You cannot deactivate your own account." });
+    if (typeof req.body.active === "boolean") u.active = req.body.active;
+    if (req.body.role && ["admin", "leader", "team"].includes(req.body.role))
+      u.role = req.body.role;
+    await u.save();
+    await audit(req, "user.updated", "User", u._id);
+    res.json(safeUser(u));
+  }),
+);
 app.get(
-  "/api/users",
-  auth,
-  adminOnly,
-  asyncRoute(async (_req, res) => {
-    const users = await User.find().sort({ created_at: -1 }).lean();
-    res.json(users.map(publicUser));
+  "/api/projects",
+  ...protect,
+  asyncRoute(async (req, res) => {
+    const docs = await Project.find(projectFilter(req.user))
+      .sort({ updatedAt: -1 })
+      .populate("leader_id", "name email")
+      .populate("team", "name email role");
+    const counts = await Task.aggregate([
+      { $match: { project_id: { $in: docs.map((p) => p._id) } } },
+      {
+        $group: {
+          _id: "$project_id",
+          count: { $sum: 1 },
+          approved: {
+            $sum: { $cond: [{ $eq: ["$status", "approved"] }, 1, 0] },
+          },
+        },
+      },
+    ]);
+    const map = new Map(counts.map((c) => [String(c._id), c]));
+    res.json(
+      docs.map((p) => ({
+        ...p.toJSON(),
+        id: String(p._id),
+        leader_name: p.leader_id?.name || null,
+        leader_id: p.leader_id ? String(p.leader_id._id) : null,
+        team: p.team.map(safeUser),
+        task_count: map.get(String(p._id))?.count || 0,
+        approved_tasks: map.get(String(p._id))?.approved || 0,
+      })),
+    );
   }),
 );
 app.post(
-  "/api/users",
-  auth,
-  adminOnly,
+  "/api/projects",
+  ...protect,
+  roles("admin"),
   asyncRoute(async (req, res) => {
-    const body = req.body || {};
-    const name = cleanString(body.name, 120);
-    const email = cleanString(body.email, 190).toLowerCase();
-    const password = String(body.password || "");
-    const role = body.role === "admin" ? "admin" : "team";
-    if (!name || !/^\S+@\S+\.\S+$/.test(email))
-      return res
-        .status(400)
-        .json({ error: "Enter a name and valid email address." });
-    if (password.length < 12)
-      return res
-        .status(400)
-        .json({ error: "Password must be at least 12 characters." });
-    try {
-      const user = await User.create({
-        name,
-        email,
-        password_hash: await bcrypt.hash(password, 12),
-        role,
+    const b = req.body;
+    if (!b.name?.trim())
+      return res.status(400).json({ message: "Project name is required." });
+    let leader = null;
+    if (b.leader_id) {
+      if (!id(b.leader_id))
+        return res.status(400).json({ message: "Invalid leader." });
+      leader = await User.findOne({
+        _id: b.leader_id,
+        role: "leader",
+        active: true,
       });
-      res.status(201).json(publicUser(user));
-    } catch (error) {
-      if (error.code === 11000)
+      if (!leader)
         return res
-          .status(409)
-          .json({ error: "An account with this email already exists." });
-      throw error;
+          .status(400)
+          .json({ message: "Choose an active project leader account." });
     }
+    const eligible = [];
+    for (const uid of b.eligible_team || []) {
+      if (!id(uid))
+        return res
+          .status(400)
+          .json({ message: "Invalid eligible team member." });
+      const u = await User.findOne({ _id: uid, role: "team", active: true });
+      if (!u)
+        return res
+          .status(400)
+          .json({
+            message: "Eligible team must contain active team accounts only.",
+          });
+      eligible.push(u._id);
+    }
+    const p = await Project.create({
+      name: b.name,
+      client: b.client || "",
+      industry: b.industry || "",
+      description: b.description || "",
+      scope: b.scope || "",
+      objectives: b.objectives || "",
+      priority: b.priority || "normal",
+      start_date: b.start_date || "",
+      due_date: b.due_date || "",
+      sample_target: Number(b.sample_target || 0),
+      leader_id: leader ? leader._id : null,
+      eligible_team: eligible,
+      team: [],
+      milestones: b.milestones || [],
+      deliverables: b.deliverables || [],
+      created_by: req.user._id,
+      status: "planning",
+    });
+    if (leader)
+      await notify(
+        [leader._id],
+        "New project assigned",
+        `You have been assigned to ${p.name}.`,
+        "project",
+        `/projects/${p._id}`,
+      );
+    await audit(req, "project.created", "Project", p._id, p._id);
+    res.status(201).json({ ...p.toJSON(), id: String(p._id) });
   }),
 );
-app.delete(
-  "/api/users/:id",
-  auth,
-  adminOnly,
+app.get(
+  "/api/projects/:id",
+  ...protect,
   asyncRoute(async (req, res) => {
-    if (!mongoose.isValidObjectId(req.params.id))
-      return res.status(404).json({ error: "User not found." });
-    if (String(req.params.id) === req.user.id)
+    const p = await visibleProject(req.user, req.params.id);
+    if (!p)
       return res
-        .status(400)
-        .json({ error: "You cannot remove your own account." });
-    const target = await User.findById(req.params.id);
-    if (!target) return res.status(404).json({ error: "User not found." });
+        .status(404)
+        .json({ message: "Project not found or access denied." });
+    await p.populate("leader_id", "name email");
+    await p.populate("team", "name email role");
+    res.json({
+      ...p.toJSON(),
+      id: String(p._id),
+      leader_name: p.leader_id?.name || null,
+      team: p.team.map(safeUser),
+    });
+  }),
+);
+app.patch(
+  "/api/projects/:id",
+  ...protect,
+  asyncRoute(async (req, res) => {
+    const p = await visibleProject(req.user, req.params.id);
+    if (!p)
+      return res
+        .status(404)
+        .json({ message: "Project not found or access denied." });
     if (
-      target.role === "admin" &&
-      (await User.countDocuments({ role: "admin" })) <= 1
-    ) {
+      req.user.role !== "admin" &&
+      !(
+        req.user.role === "leader" &&
+        String(p.leader_id) === String(req.user._id)
+      )
+    )
+      return res
+        .status(403)
+        .json({
+          message: "Only admin or assigned leader can update this project.",
+        });
+    const allowed =
+      req.user.role === "admin"
+        ? [
+            "name",
+            "client",
+            "industry",
+            "description",
+            "scope",
+            "objectives",
+            "priority",
+            "start_date",
+            "due_date",
+            "sample_target",
+            "status",
+            "leader_id",
+            "eligible_team",
+            "milestones",
+            "deliverables",
+            "archived",
+          ]
+        : [
+            "description",
+            "status",
+            "sample_completed",
+            "milestones",
+            "deliverables",
+          ];
+    for (const k of allowed) if (req.body[k] !== undefined) p[k] = req.body[k];
+    if (p.status === "completed" && req.user.role !== "admin") {
+      const pending = await Task.countDocuments({
+        project_id: p._id,
+        status: { $ne: "approved" },
+      });
+      if (pending)
+        return res
+          .status(400)
+          .json({ message: "Approve all tasks before closing this project." });
+      const missing = (p.deliverables || []).some((d) => d.required && !d.done);
+      if (missing)
+        return res
+          .status(400)
+          .json({
+            message:
+              "Complete required deliverables before closing this project.",
+          });
+    }
+    await p.save();
+    await audit(req, "project.updated", "Project", p._id, p._id);
+    res.json({ ...p.toJSON(), id: String(p._id) });
+  }),
+);
+app.post(
+  "/api/projects/:id/team",
+  ...protect,
+  roles("admin", "leader"),
+  asyncRoute(async (req, res) => {
+    const p = await visibleProject(req.user, req.params.id);
+    if (!p)
+      return res
+        .status(404)
+        .json({ message: "Project not found or access denied." });
+    if (
+      req.user.role === "leader" &&
+      String(p.leader_id) !== String(req.user._id)
+    )
+      return res
+        .status(403)
+        .json({ message: "Only the assigned leader can manage this team." });
+    const ids = req.body.member_ids;
+    if (!Array.isArray(ids))
+      return res.status(400).json({ message: "member_ids must be an array." });
+    const users = await User.find({
+      _id: { $in: ids },
+      role: "team",
+      active: true,
+    });
+    if (users.length !== new Set(ids.map(String)).size)
       return res
         .status(400)
-        .json({ error: "At least one administrator account must remain." });
+        .json({
+          message: "Every selected user must be an active team member.",
+        });
+    if (
+      req.user.role === "leader" &&
+      p.eligible_team.length &&
+      !users.every((u) =>
+        p.eligible_team.some((x) => String(x) === String(u._id)),
+      )
+    )
+      return res
+        .status(403)
+        .json({
+          message:
+            "One or more members are outside the admin-approved eligible pool.",
+        });
+    p.team = users.map((u) => u._id);
+    await p.save();
+    await notify(
+      p.team,
+      "Added to project",
+      `You have been added to ${p.name}.`,
+      "project",
+      `/projects/${p._id}`,
+    );
+    await audit(req, "project.team_updated", "Project", p._id, p._id);
+    res.json({ team: users.map(safeUser) });
+  }),
+);
+app.get(
+  "/api/tasks",
+  ...protect,
+  asyncRoute(async (req, res) => {
+    let filter = {};
+    if (req.user.role === "team") filter = { assigned_to: req.user._id };
+    else if (req.user.role === "leader") {
+      const ps = await Project.find({ leader_id: req.user._id }).select("_id");
+      filter = { project_id: { $in: ps.map((p) => p._id) } };
     }
-    await ApiToken.deleteMany({ user_id: target._id });
-    await target.deleteOne();
+    if (req.query.project_id) {
+      if (!id(req.query.project_id))
+        return res.status(400).json({ message: "Invalid project ID." });
+      filter.project_id = req.query.project_id;
+    }
+    const docs = await Task.find(filter)
+      .sort({ updatedAt: -1 })
+      .populate("project_id", "name")
+      .populate("assigned_to", "name email");
+    res.json(
+      docs.map((t) => ({
+        ...t.toJSON(),
+        id: String(t._id),
+        project_id: String(t.project_id?._id || t.project_id),
+        project_name: t.project_id?.name || "",
+        assigned_to: String(t.assigned_to?._id || t.assigned_to),
+        assigned_name: t.assigned_to?.name || "",
+      })),
+    );
+  }),
+);
+app.post(
+  "/api/tasks",
+  ...protect,
+  roles("admin", "leader"),
+  asyncRoute(async (req, res) => {
+    const b = req.body,
+      p = await visibleProject(req.user, b.project_id);
+    if (!p)
+      return res
+        .status(404)
+        .json({ message: "Project not found or access denied." });
+    if (
+      req.user.role === "leader" &&
+      String(p.leader_id) !== String(req.user._id)
+    )
+      return res
+        .status(403)
+        .json({ message: "Only the assigned leader can assign tasks." });
+    if (!id(b.assigned_to))
+      return res.status(400).json({ message: "Choose a valid team member." });
+    const member = await User.findOne({
+      _id: b.assigned_to,
+      role: "team",
+      active: true,
+    });
+    if (!member)
+      return res
+        .status(400)
+        .json({ message: "Assigned user must be an active team member." });
+    if (!p.team.some((x) => String(x) === String(member._id)))
+      return res
+        .status(400)
+        .json({
+          message:
+            "Add this member to the project team before assigning a task.",
+        });
+    const t = await Task.create({
+      project_id: p._id,
+      assigned_to: member._id,
+      created_by: req.user._id,
+      title: b.title,
+      description: b.description || "",
+      work_date: b.work_date || "",
+      due_date: b.due_date || "",
+    });
+    await notify(
+      [member._id],
+      "New task assigned",
+      `${t.title} has been assigned to you in ${p.name}.`,
+      "task",
+      `/tasks/${t._id}`,
+    );
+    await audit(req, "task.created", "Task", t._id, p._id);
+    res.status(201).json({ ...t.toJSON(), id: String(t._id) });
+  }),
+);
+app.post(
+  "/api/tasks/:id/updates",
+  ...protect,
+  asyncRoute(async (req, res) => {
+    const t = await Task.findById(req.params.id).populate("project_id");
+    if (!t) return res.status(404).json({ message: "Task not found." });
+    if (
+      req.user.role === "team" &&
+      String(t.assigned_to) !== String(req.user._id)
+    )
+      return res
+        .status(403)
+        .json({ message: "You can only update your own tasks." });
+    if (
+      req.user.role === "leader" &&
+      String(t.project_id.leader_id) !== String(req.user._id)
+    )
+      return res
+        .status(403)
+        .json({ message: "This task is outside your assigned projects." });
+    if (t.status === "approved")
+      return res
+        .status(400)
+        .json({ message: "Approved tasks cannot be edited." });
+    t.completed_count = Math.max(0, Number(req.body.completed_count || 0));
+    t.hours_spent = Math.max(0, Number(req.body.hours_spent || 0));
+    t.update_note = String(req.body.update_note || "").trim();
+    if (!t.update_note)
+      return res
+        .status(400)
+        .json({ message: "Add notes about completed and pending work." });
+    t.work_date = req.body.work_date || t.work_date;
+    t.status = "submitted";
+    await t.save();
+    await notify(
+      [t.project_id.leader_id],
+      "Daily update submitted",
+      `${req.user.name} submitted an update for ${t.title}.`,
+      "review",
+      `/tasks/${t._id}`,
+    );
+    await audit(req, "task.update_submitted", "Task", t._id, t.project_id._id);
+    res.json({ ...t.toJSON(), id: String(t._id) });
+  }),
+);
+app.post(
+  "/api/tasks/:id/review",
+  ...protect,
+  roles("admin", "leader"),
+  asyncRoute(async (req, res) => {
+    const t = await Task.findById(req.params.id).populate("project_id");
+    if (!t) return res.status(404).json({ message: "Task not found." });
+    if (
+      req.user.role === "leader" &&
+      String(t.project_id.leader_id) !== String(req.user._id)
+    )
+      return res
+        .status(403)
+        .json({ message: "This task is outside your assigned projects." });
+    const decision = req.body.decision;
+    if (!["approve", "changes"].includes(decision))
+      return res
+        .status(400)
+        .json({ message: "Decision must be approve or changes." });
+    if (!t.update_note)
+      return res
+        .status(400)
+        .json({ message: "There is no submitted update to review." });
+    t.status = decision === "approve" ? "approved" : "changes_requested";
+    t.leader_feedback = String(req.body.feedback || "");
+    t.reviewed_by = req.user._id;
+    t.reviewed_at = new Date();
+    await t.save();
+    await notify(
+      [t.assigned_to],
+      decision === "approve" ? "Task update approved" : "Changes requested",
+      decision === "approve"
+        ? `Your update for ${t.title} was approved.`
+        : `Please revise ${t.title}: ${t.leader_feedback}`,
+      "review",
+      `/tasks/${t._id}`,
+    );
+    await audit(req, `task.${decision}d`, "Task", t._id, t.project_id._id);
+    res.json({ ...t.toJSON(), id: String(t._id) });
+  }),
+);
+app.get(
+  "/api/surveys",
+  ...protect,
+  asyncRoute(async (req, res) => {
+    const ps = await Project.find(projectFilter(req.user)).select("_id name");
+    const docs = await Survey.find({
+      project_id: { $in: ps.map((p) => p._id) },
+    })
+      .sort({ updatedAt: -1 })
+      .populate("project_id", "name");
+    res.json(
+      docs.map((s) => ({
+        ...s.toJSON(),
+        id: String(s._id),
+        project_id: String(s.project_id?._id || s.project_id),
+        project_name: s.project_id?.name || "",
+      })),
+    );
+  }),
+);
+app.post(
+  "/api/surveys",
+  ...protect,
+  roles("admin", "leader"),
+  asyncRoute(async (req, res) => {
+    const p = await visibleProject(req.user, req.body.project_id);
+    if (!p)
+      return res
+        .status(404)
+        .json({ message: "Project not found or access denied." });
+    if (
+      req.user.role === "leader" &&
+      String(p.leader_id) !== String(req.user._id)
+    )
+      return res
+        .status(403)
+        .json({ message: "This project is not assigned to you." });
+    const s = await Survey.create({
+      project_id: p._id,
+      survey_name: req.body.survey_name,
+      source: req.body.source || "",
+      response_target: Number(req.body.response_target || 0),
+      response_count: Number(req.body.response_count || 0),
+      notes: req.body.notes || "",
+      created_by: req.user._id,
+    });
+    await audit(req, "survey.created", "Survey", s._id, p._id);
+    res.status(201).json({ ...s.toJSON(), id: String(s._id) });
+  }),
+);
+app.post(
+  "/api/surveys/import",
+  ...protect,
+  roles("admin", "leader"),
+  asyncRoute(async (req, res) => {
+    const rows = req.body.rows;
+    if (!Array.isArray(rows) || rows.length > 5000)
+      return res
+        .status(400)
+        .json({ message: "Provide an array of up to 5,000 rows." });
+    let created = 0;
+    for (const row of rows) {
+      const projectId = row.project_id || row.projectId;
+      if (!id(projectId)) continue;
+      const p = await visibleProject(req.user, projectId);
+      if (!p) continue;
+      await Survey.create({
+        project_id: p._id,
+        survey_name: String(row.survey_name || row.name || "Imported survey"),
+        source: String(row.source || ""),
+        response_target: Number(row.response_target || row.target || 0),
+        response_count: Number(row.response_count || row.responses || 0),
+        notes: String(row.notes || ""),
+        created_by: req.user._id,
+      });
+      created++;
+    }
+    res.json({
+      created,
+      message: `Imported ${created} survey rows. Rows need a valid project_id column.`,
+    });
+  }),
+);
+app.get(
+  "/api/records",
+  ...protect,
+  asyncRoute(async (req, res) => {
+    const ps = await Project.find(projectFilter(req.user)).select("_id name");
+    const docs = await DataRecord.find({
+      project_id: { $in: ps.map((p) => p._id) },
+    })
+      .sort({ updatedAt: -1 })
+      .populate("project_id", "name");
+    res.json(
+      docs.map((r) => ({
+        ...r.toJSON(),
+        id: String(r._id),
+        project_id: String(r.project_id?._id || r.project_id),
+        project_name: r.project_id?.name || "",
+        created_at: r.createdAt,
+        updated_at: r.updatedAt,
+      })),
+    );
+  }),
+);
+app.post(
+  "/api/records",
+  ...protect,
+  roles("admin", "leader"),
+  asyncRoute(async (req, res) => {
+    const p = await visibleProject(req.user, req.body.project_id);
+    if (!p)
+      return res
+        .status(404)
+        .json({ message: "Project not found or access denied." });
+    if (
+      req.user.role === "leader" &&
+      String(p.leader_id) !== String(req.user._id)
+    )
+      return res
+        .status(403)
+        .json({ message: "This project is not assigned to you." });
+    const r = await DataRecord.create({
+      project_id: p._id,
+      record_name: req.body.record_name,
+      record_type: req.body.record_type || "Raw data",
+      record_count: Number(req.body.record_count || 0),
+      notes: req.body.notes || "",
+      created_by: req.user._id,
+    });
+    await audit(req, "record.created", "DataRecord", r._id, p._id);
+    res.status(201).json({ ...r.toJSON(), id: String(r._id) });
+  }),
+);
+app.post(
+  "/api/records/import",
+  ...protect,
+  roles("admin", "leader"),
+  asyncRoute(async (req, res) => {
+    const rows = req.body.rows;
+    if (!Array.isArray(rows) || rows.length > 5000)
+      return res
+        .status(400)
+        .json({ message: "Provide an array of up to 5,000 rows." });
+    let created = 0;
+    for (const row of rows) {
+      const projectId = row.project_id || row.projectId;
+      if (!id(projectId)) continue;
+      const p = await visibleProject(req.user, projectId);
+      if (!p) continue;
+      await DataRecord.create({
+        project_id: p._id,
+        record_name: String(
+          row.record_name || row.name || "Imported record set",
+        ),
+        record_type: String(row.record_type || row.type || "Raw data"),
+        record_count: Number(row.record_count || row.count || 0),
+        notes: String(row.notes || ""),
+        created_by: req.user._id,
+      });
+      created++;
+    }
+    res.json({
+      created,
+      message: `Imported ${created} record rows. Rows need a valid project_id column.`,
+    });
+  }),
+);
+app.get(
+  "/api/notifications",
+  ...protect,
+  asyncRoute(async (req, res) => {
+    const docs = await Notification.find({ user_id: req.user._id })
+      .sort({ createdAt: -1 })
+      .limit(100);
+    res.json(
+      docs.map((n) => ({
+        ...n.toJSON(),
+        id: String(n._id),
+        created_at: n.createdAt,
+        is_read: n.is_read,
+      })),
+    );
+  }),
+);
+app.post(
+  "/api/notifications/:id/read",
+  ...protect,
+  asyncRoute(async (req, res) => {
+    const n = await Notification.findOneAndUpdate(
+      { _id: req.params.id, user_id: req.user._id },
+      { is_read: true },
+      { new: true },
+    );
+    if (!n) return res.status(404).json({ message: "Notification not found." });
     res.json({ ok: true });
   }),
 );
-
-app.use((req, res) =>
-  res.status(404).json({ error: "API endpoint not found." }),
+app.post(
+  "/api/notifications/read-all",
+  ...protect,
+  asyncRoute(async (req, res) => {
+    await Notification.updateMany(
+      { user_id: req.user._id, is_read: false },
+      { is_read: true },
+    );
+    res.json({ ok: true });
+  }),
 );
-app.use((error, _req, res, _next) => {
-  if (error instanceof multer.MulterError) {
+app.get(
+  "/api/files",
+  ...protect,
+  asyncRoute(async (req, res) => {
+    const ps = await Project.find(projectFilter(req.user)).select("_id name");
+    const docs = await FileRecord.find({
+      project_id: { $in: ps.map((p) => p._id) },
+    })
+      .sort({ createdAt: -1 })
+      .populate("project_id", "name")
+      .populate("uploaded_by", "name");
+    res.json(
+      docs.map((f) => ({
+        ...f.toJSON(),
+        id: String(f._id),
+        project_id: String(f.project_id?._id || f.project_id),
+        project_name: f.project_id?.name || "",
+        created_at: f.createdAt,
+      })),
+    );
+  }),
+);
+app.post(
+  "/api/files",
+  ...protect,
+  upload.single("file"),
+  asyncRoute(async (req, res) => {
+    if (!req.file)
+      return res.status(400).json({ message: "Choose a file to upload." });
+    const p = await visibleProject(req.user, req.body.project_id);
+    if (!p) {
+      fs.unlink(req.file.path, () => {});
+      return res
+        .status(404)
+        .json({ message: "Project not found or access denied." });
+    }
+    if (
+      req.user.role === "leader" &&
+      String(p.leader_id) !== String(req.user._id)
+    ) {
+      fs.unlink(req.file.path, () => {});
+      return res
+        .status(403)
+        .json({ message: "This project is not assigned to you." });
+    }
+    const f = await FileRecord.create({
+      project_id: p._id,
+      original_name: path.basename(req.file.originalname),
+      stored_name: req.file.filename,
+      mime_type: req.file.mimetype,
+      size_bytes: req.file.size,
+      uploaded_by: req.user._id,
+    });
+    await audit(req, "file.uploaded", "File", f._id, p._id);
+    res.status(201).json({ ...f.toJSON(), id: String(f._id) });
+  }),
+);
+app.get(
+  "/api/files/:id/download",
+  ...protect,
+  asyncRoute(async (req, res) => {
+    const f = await FileRecord.findById(req.params.id);
+    if (!f) return res.status(404).json({ message: "File not found." });
+    const p = await visibleProject(req.user, f.project_id);
+    if (!p)
+      return res
+        .status(404)
+        .json({ message: "File not found or access denied." });
+    const full = path.join(uploadDir, f.stored_name);
+    if (!fs.existsSync(full))
+      return res
+        .status(410)
+        .json({
+          message: "Stored file is missing. Configure persistent storage.",
+        });
+    res.download(full, f.original_name);
+  }),
+);
+app.delete(
+  "/api/files/:id",
+  ...protect,
+  asyncRoute(async (req, res) => {
+    const f = await FileRecord.findById(req.params.id);
+    if (!f) return res.status(404).json({ message: "File not found." });
+    const p = await visibleProject(req.user, f.project_id);
+    if (!p)
+      return res
+        .status(404)
+        .json({ message: "File not found or access denied." });
+    if (
+      req.user.role === "team" &&
+      String(f.uploaded_by) !== String(req.user._id)
+    )
+      return res
+        .status(403)
+        .json({ message: "You can only delete files you uploaded." });
+    if (
+      req.user.role === "leader" &&
+      String(p.leader_id) !== String(req.user._id)
+    )
+      return res
+        .status(403)
+        .json({ message: "This project is not assigned to you." });
+    fs.unlink(path.join(uploadDir, f.stored_name), () => {});
+    await f.deleteOne();
+    await audit(req, "file.deleted", "File", f._id, p._id);
+    res.json({ ok: true });
+  }),
+);
+app.get(
+  "/api/audit",
+  ...protect,
+  roles("admin", "leader"),
+  asyncRoute(async (req, res) => {
+    let filter = {};
+    if (req.user.role === "leader") {
+      const ps = await Project.find({ leader_id: req.user._id }).select("_id");
+      filter = { project_id: { $in: ps.map((p) => p._id) } };
+    }
+    const docs = await AuditLog.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(200)
+      .populate("actor_id", "name email");
+    res.json(
+      docs.map((d) => ({
+        ...d.toJSON(),
+        id: String(d._id),
+        actor_name: d.actor_id?.name || "User",
+      })),
+    );
+  }),
+);
+app.use((err, req, res, next) => {
+  console.error(err);
+  if (err instanceof multer.MulterError)
     return res
       .status(400)
       .json({
-        error:
-          error.code === "LIMIT_FILE_SIZE"
-            ? "File must be 5 MB or smaller."
-            : "Upload could not be processed.",
+        message:
+          err.code === "LIMIT_FILE_SIZE"
+            ? "File exceeds configured size limit."
+            : err.message,
       });
-  }
-  if (error.message === "Origin is not allowed by CORS.")
-    return res.status(403).json({ error: error.message });
-  console.error(
-    `[${new Date().toISOString()}]`,
-    error.code || error.name,
-    error.message,
-  );
+  const status = err.status || 500;
   res
-    .status(500)
+    .status(status)
     .json({
-      error:
-        process.env.NODE_ENV === "production"
-          ? "An unexpected server error occurred."
-          : error.message,
+      message:
+        status === 500 ? "An unexpected server error occurred." : err.message,
     });
 });
-
-async function startServer() {
-  if (!process.env.MONGODB_URI) {
-    throw new Error(
-      "MONGODB_URI is missing. Add your MongoDB Atlas connection string in the environment.",
-    );
-  }
-  await mongoose.connect(process.env.MONGODB_URI, {
-    serverSelectionTimeoutMS: 10000,
+app.use((req, res) =>
+  res.status(404).json({ message: "API route not found." }),
+);
+mongoose
+  .connect(process.env.MONGODB_URI || "")
+  .then(() => {
+    console.log("MongoDB connected");
+    app.listen(PORT, "0.0.0.0", () => console.log(`API listening on ${PORT}`));
+  })
+  .catch((err) => {
+    console.error("MongoDB connection failed:", err.message);
+    process.exit(1);
   });
-  console.log("Connected to MongoDB.");
-  app.listen(port, "0.0.0.0", () =>
-    console.log(`NexGen Research API listening on ${port}`),
-  );
-}
-
-startServer().catch((error) => {
-  console.error("Could not start NexGen Research API:", error.message);
-  process.exit(1);
-});

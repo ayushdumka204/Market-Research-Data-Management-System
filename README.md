@@ -1,133 +1,90 @@
-# NexGen Market Research Data Management System
+# NexGen Market Research — Project & Team Management System
 
-A full-stack internal research management application for NexGen Market Research. Frontend and backend are separate root folders. Backend: **Node.js + Express**. Database: **MongoDB Atlas**.
+This is a page-wise full-stack application starter for NexGen Market Research. It separates each screen and reusable component instead of placing all UI in `App.tsx`.
 
-## Features
-- Admin and team-member accounts with role-based access
-- Dashboard backed by live MongoDB statistics
-- Create, edit, list and (admin-only) delete research projects
-- Create, edit, list and (admin-only) delete survey responses
-- CSV import (up to 5,000 rows / 5 MB) and Excel export in the UI
-- Reports with project/response summaries
-- Light/dark theme switcher
-- Password hashing with bcrypt, opaque random bearer tokens stored as SHA-256 hashes, Mongoose validation, CORS allowlist, Helmet security headers and request limits
-
-## Repository layout
-- `frontend/` — React, TypeScript, Vite and Tailwind CSS
-- `backend/` — Node.js 20+, Express REST API, Mongoose models and admin setup script
-
-## 1. Create MongoDB Atlas database
-1. Open https://cloud.mongodb.com/ and create a project if needed.
-2. Create a free/shared MongoDB cluster if the option is available for your account and region.
-3. Under **Database Access**, create a database user with a strong password.
-4. Under **Network Access**, allow the Render service to connect. For quick local testing, add your current IP. Avoid `0.0.0.0/0` for production unless you understand the security trade-off and use a dedicated least-privilege database user.
-5. Click **Connect → Drivers**, choose Node.js, and copy the connection string.
-6. Replace the username/password placeholders and include a database name, for example `nexgen_research`:
+## Folder structure
 
 ```text
-mongodb+srv://USERNAME:PASSWORD@YOUR-CLUSTER.mongodb.net/nexgen_research?retryWrites=true&w=majority
+nexgen-project-operations/
+├── frontend/
+│   ├── src/
+│   │   ├── components/
+│   │   │   ├── forms/Field.tsx
+│   │   │   ├── layout/{Header,PageTitle,Sidebar,Toast}.tsx
+│   │   │   ├── tables/DataTable.tsx
+│   │   │   └── ui/{Button,EmptyState,Modal,StatusBadge}.tsx
+│   │   ├── pages/
+│   │   │   ├── Login.tsx
+│   │   │   ├── Dashboard.tsx
+│   │   │   ├── Projects.tsx
+│   │   │   ├── Tasks.tsx
+│   │   │   ├── ProjectFiles.tsx
+│   │   │   ├── SurveyData.tsx
+│   │   │   ├── DataRecords.tsx
+│   │   │   ├── Reports.tsx
+│   │   │   ├── TeamWorkload.tsx
+│   │   │   ├── TeamUsers.tsx
+│   │   │   ├── Notifications.tsx
+│   │   │   └── Settings.tsx
+│   │   ├── services/api.ts
+│   │   ├── types/index.ts
+│   │   ├── utils/format.ts
+│   │   ├── App.tsx
+│   │   ├── main.tsx
+│   │   └── styles.css
+│   ├── .env.example
+│   └── package.json
+└── backend/
+    ├── scripts/create-admin.js
+    ├── src/models.js
+    ├── src/server.js
+    ├── .env.example
+    └── package.json
 ```
 
-If your password contains reserved URL characters, percent-encode them. Never share or commit the connection string.
+## Features included
 
-The application creates its collections and indexes through Mongoose when the API runs. There are no SQL files to execute.
+- Role-aware authentication: admin, project leader and team member.
+- Admin project creation and leader assignment.
+- Project-wise team assignment and workload view.
+- Tasks, daily work updates, leader approval and correction requests.
+- Project files with permission-checked download and deletion.
+- Survey instruments and data-record metadata, including spreadsheet import and CSV export.
+- Notifications, basic audit trail, project delivery reports.
+- Responsive compact UI, Inter font, slate/blue palette and persistent light/dark theme.
+- MongoDB Atlas models, password hashing, JWT authentication, role checks, request size limits, file type/size checks, CORS and security headers.
 
-## 2. Run locally
-Install Node.js 20 or newer.
+## Existing deployment URLs
 
-### Backend
-```bash
-cd backend
-cp .env.example .env
-```
-Set `MONGODB_URI` in `backend/.env` to your Atlas connection string. Then run:
+- Frontend: https://market-research-data-management-sys.vercel.app/login
+- Backend: https://market-research-data-management-system.onrender.com
+- Health check: https://market-research-data-management-system.onrender.com/api/health
 
-```bash
-npm install
-npm run dev
-```
+These URLs are provided as configuration/reference only; this ZIP has not been deployed to them.
 
-The API runs at `http://localhost:8080` by default. Health check: `http://localhost:8080/api/health`. It should return `{ "status": "ok", "database": "connected" }` after MongoDB connects.
+## Local setup
 
-### Create the first admin account
-Run this from the `backend` folder after configuring `.env`:
+Prerequisites: Node.js 20+ recommended, MongoDB Atlas or a local MongoDB instance.
 
-```bash
-npm run create-admin
-```
+1. Copy `backend/.env.example` to `backend/.env`.
+2. Set `MONGODB_URI` and a random `JWT_SECRET` of at least 32 characters. Set `CORS_ORIGINS` to the exact local and deployed frontend origins.
+3. In a terminal: `cd backend`, `npm install`, then `npm run dev`.
+4. Create the first administrator from `backend/`:
+   `npm run create-admin -- "NexGen Admin" admin@example.com "Use-A-Long-Unique-Password"`
+5. Copy `frontend/.env.example` to `frontend/.env`. Set `VITE_API_BASE_URL=http://localhost:5000/api` for local development.
+6. In a second terminal: `cd frontend`, `npm install`, `npm run dev`.
 
-Follow the prompts for email, full name and a password of at least 12 characters. The script creates the admin record in MongoDB. If the email already exists, use a different email or manage the existing account; do not create duplicate admins. Avoid putting real credentials in shell history and never commit `.env`.
+## Deployment setup
 
-### Frontend
-Open a second terminal:
+- Render backend: configure `MONGODB_URI`, `JWT_SECRET`, `CORS_ORIGINS`, `UPLOAD_DIR` and optional `MAX_FILE_SIZE_MB` as environment variables. Start command: `npm start`.
+- Vercel frontend: set `VITE_API_BASE_URL=https://market-research-data-management-system.onrender.com/api`, then redeploy.
+- CORS must include `https://market-research-data-management-sys.vercel.app` exactly.
+- Never put MongoDB URI, JWT secrets, passwords or other secrets in Vercel's `VITE_` variables or commit `.env` files.
 
-```bash
-cd frontend
-cp .env.example .env
-```
-Set this in `frontend/.env`:
+## Important operational notes
 
-```text
-VITE_API_BASE_URL=http://localhost:8080/api
-```
-
-Then run:
-
-```bash
-npm install
-npm run dev
-```
-Open the Vite URL shown in the terminal, normally `http://localhost:5173`.
-
-## 3. Deploy backend on Render
-1. Push the repository to GitHub. Ensure no `.env` file or secrets are committed.
-2. In Render, select **New → Web Service** and connect the repository.
-3. Choose **Docker** runtime. Use `backend/Dockerfile` as the Dockerfile path and keep the repository root as the Docker context.
-4. Add these environment variables in Render:
-   - `NODE_ENV=production`
-   - `MONGODB_URI` — full MongoDB Atlas connection string
-   - `CORS_ORIGINS` — exact frontend origin, e.g. `https://YOUR-PROJECT.vercel.app` (temporarily use `http://localhost:5173` for local development)
-   - `TOKEN_TTL_DAYS=7`
-5. In Atlas **Network Access**, configure access for the Render service. Render outbound IP ranges can vary by plan; consult the current Render networking details for your service. Do not assume the local computer IP is sufficient for Render.
-6. Deploy and open `https://YOUR-BACKEND.onrender.com/api/health`. Confirm the response reports `database: connected`.
-
-`render.yaml` is a starter template; review the service name and frontend origin before using it. The app listens on Render's supplied `PORT`.
-
-## 4. Create admin account for production
-The recommended approach is to run the admin script from a trusted local terminal with the production `MONGODB_URI` set in a private `backend/.env`, or use a secure Render Shell if available. Run:
-
-```bash
-npm run create-admin
-```
-Use a strong unique password. Do not place the password in screenshots, source code, frontend environment variables or logs. Remove the production URI from local files when finished and never commit `.env`.
-
-## 5. Deploy frontend on Vercel
-1. Import the same GitHub repository into Vercel.
-2. Set **Root Directory** to `frontend`.
-3. Framework preset: **Vite**.
-4. Build command: `npm run build` (Vercel will install dependencies; if not, use `npm install && npm run build`).
-5. Output directory: `dist`.
-6. Add the build-time environment variable:
-
-```text
-VITE_API_BASE_URL=https://YOUR-BACKEND.onrender.com/api
-```
-
-7. Deploy. Copy the exact Vercel origin and set it as `CORS_ORIGINS` on Render. Redeploy the backend after changing CORS.
-
-Never put `MONGODB_URI`, passwords or other backend secrets in `VITE_` variables; frontend variables are public in the browser bundle.
-
-## Roles
-- **Admin:** dashboard, project/response operations, user management and destructive deletes.
-- **Team:** view dashboard, create/edit projects and responses, import/export records and view reports; cannot delete projects/responses or manage accounts.
-
-## CSV import format
-Required headers: `project_id,respondent_code,response_date`. Optional headers: `channel,answers,notes`. `project_id` must be the MongoDB ObjectId of an existing project (copy it from the exported project ID column or database records). `response_date` uses `YYYY-MM-DD`. `answers` should be a JSON object string, for example `"{\"satisfaction\":5}"`. Duplicate respondent codes within the same project are skipped and returned as row errors.
-
-## Before using real research data
-- Use a strong, unique Atlas database password and restrict network access where possible.
-- Enable/confirm TLS; MongoDB Atlas uses TLS for its standard SRV connection string.
-- Back up the database and test restore procedures.
-- Verify CORS uses only the exact frontend origin.
-- Test role permissions, login/logout, CRUD, import edge cases and deployment health with non-sensitive sample data.
-- The starter uses bearer tokens in browser local storage to match the current frontend; for higher-risk production use, consider a security review and an HttpOnly secure-cookie design.
+1. **Persistent uploads:** The included backend uses local disk storage for uploaded files. Render's ephemeral filesystem can lose files on redeploy/restart. For real production use, replace local disk uploads with persistent object storage (e.g. S3-compatible storage) before relying on the file archive.
+2. **Spreadsheet import mapping:** Import rows should include a valid `project_id` field for each row; invalid or inaccessible project rows are skipped. Export downloads are generated client-side.
+3. **Authentication:** JWT sessions expire after 12 hours. The logout route is client-side token removal; JWT revocation is not implemented.
+4. **Scope:** The UI has core project/task/data workflows, but does not yet implement every advanced requirement such as multi-step project wizard, milestone-weighted progress calculation, versioned file replacement, comprehensive activity log screen, notifications polling, or automated deadline emails.
+5. **Testing:** Review API route compatibility, run frontend `npm run build`, and test each role against a non-production database before deploying. This ZIP is not a security or production audit and no live deployment has been verified.
